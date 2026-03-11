@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta広告 一括入稿ツール</title>
+<!-- Facebook SDK -->
+<script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --muted: #64748b;
+    --success: #16a34a;
+    --error: #dc2626;
+    --warning: #d97706;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 16px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; }
+  h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  input[type="text"], input[type="url"], input[type="password"], textarea, select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.2s;
+    font-family: inherit;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--primary);
+  }
+  textarea { resize: vertical; }
+
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  .hint { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    font-family: inherit;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-danger { background: var(--error); color: #fff; }
+  .btn-outline {
+    background: transparent;
+    color: var(--primary);
+    border: 1px solid var(--primary);
+  }
+  .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--primary);
+    background: #eff6ff;
+  }
+  .drop-zone p { font-size: 0.875rem; color: var(--muted); }
+  .drop-zone .sub { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
+
+  .image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .image-item {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    background: #f8fafc;
+  }
+  .image-item img {
+    width: 100%;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+  .image-item .name {
+    font-size: 0.7rem;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+    padding: 0 2px;
+  }
+  .image-item .remove-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: var(--error);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  .image-item:hover .remove-btn { display: flex; }
+
+  .footer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-bar .info { font-size: 0.875rem; color: var(--muted); }
+
+  /* Progress */
+  .progress-section { display: none; }
+  .progress-section.active { display: block; }
+  .progress-bar-container {
+    width: 100%;
+    background: #e2e8f0;
+    border-radius: 8px;
+    height: 8px;
+    margin: 12px 0;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--primary);
+    border-radius: 8px;
+    transition: width 0.3s;
+    width: 0%;
+  }
+  .progress-status {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .progress-items {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .progress-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+  }
+  .progress-item:last-child { border-bottom: none; }
+  .progress-item .type-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    margin-right: 8px;
+  }
+  .badge-campaign { background: #dbeafe; color: #1e40af; }
+  .badge-adset { background: #fef3c7; color: #92400e; }
+  .badge-image { background: #e0e7ff; color: #3730a3; }
+  .badge-creative { background: #fce7f3; color: #9d174d; }
+  .badge-ad { background: #d1fae5; color: #065f46; }
+  .status-success { color: var(--success); font-weight: 500; }
+  .status-error { color: var(--error); font-weight: 500; }
+  .status-progress { color: var(--warning); font-weight: 500; }
+  .error-detail { font-size: 0.7rem; color: var(--error); margin-top: 2px; }
+
+  /* Sections */
+  .section { display: none; }
+  .section.active { display: block; }
+
+  /* Login */
+  #login-section .token-field { margin-top: 12px; }
+
+  /* Select */
+  .select-group { margin-bottom: 12px; }
+  .select-group label { margin-bottom: 6px; }
+
+  .badge-info {
+    display: inline-block;
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+  }
+
+  .flex-between {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .hidden { display: none; }
+  .mt-2 { margin-top: 8px; }
+  .mt-3 { margin-top: 12px; }
+  .mb-2 { margin-bottom: 8px; }
+  .mb-3 { margin-bottom: 12px; }
+  .text-center { text-align: center; }
+  .text-sm { font-size: 0.875rem; }
+  .text-xs { font-size: 0.75rem; }
+</style>
+</head>
+<body>
+
+<!-- ===== Step 1: Login & Setup ===== -->
+<div id="login-section" class="section active">
+  <h1>Meta広告 一括入稿ツール</h1>
+
+  <!-- Facebook Login -->
+  <div class="card">
+    <h2>Facebookでログイン</h2>
+    <p class="hint mb-3">
+      Facebookアカウントでログインすると、アクセストークンが自動取得されます。
+    </p>
+    <div id="fb-login-area">
+      <button class="btn btn-primary" onclick="loginWithFacebook()" id="fb-login-btn" style="background:#1877F2;">
+        Facebookでログイン
+      </button>
+    </div>
+    <div id="fb-logged-in" style="display:none;">
+      <div style="display:flex;align-items:center;gap:12px;padding:8px 0;">
+        <span style="color:var(--success);font-weight:500;" id="fb-user-name"></span>
+        <button class="btn btn-outline btn-sm" onclick="logoutFacebook()">ログアウト</button>
+      </div>
+    </div>
+    <p id="fb-login-error" class="hint mt-2" style="color:var(--error);display:none;"></p>
+    <p id="fb-login-status" class="hint mt-2" style="display:none;"></p>
+  </div>
+
+  <!-- Account Selection (shown after FB login) -->
+  <div id="fb-account-section" class="card" style="display:none;">
+    <h2>アカウント選択</h2>
+    <div class="field">
+      <label for="fb-ad-account-select">広告アカウント</label>
+      <select id="fb-ad-account-select">
+        <option value="">読み込み中...</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fb-page-select">Facebookページ</label>
+      <select id="fb-page-select">
+        <option value="">読み込み中...</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="handleFbSetup()" id="fb-go-btn">
+      広告を入稿する
+    </button>
+    <p id="fb-setup-error" class="hint mt-2" style="color:var(--error);display:none;"></p>
+  </div>
+
+  <!-- Divider -->
+  <div style="display:flex;align-items:center;gap:12px;margin:16px 0;">
+    <div style="flex:1;height:1px;background:var(--border);"></div>
+    <span style="font-size:0.8rem;color:var(--muted);">または</span>
+    <div style="flex:1;height:1px;background:var(--border);"></div>
+  </div>
+
+  <!-- Manual Token Input (existing) -->
+  <div class="card">
+    <div class="flex-between mb-2">
+      <h2 style="margin-bottom:0;">手動でトークンを入力</h2>
+      <button class="btn btn-outline btn-sm" onclick="toggleManualSection()" id="manual-toggle-btn">表示</button>
+    </div>
+    <div id="manual-section" style="display:none;">
+      <p class="hint mb-3">
+        <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a>
+        でアクセストークンを取得して入力してください。
+      </p>
+
+      <div class="field">
+        <label for="access-token">アクセストークン</label>
+        <input type="password" id="access-token" placeholder="EAAxxxxxxx...">
+      </div>
+
+      <div class="field">
+        <label for="manual-ad-account">広告アカウントID</label>
+        <input type="text" id="manual-ad-account" placeholder="1234567890">
+        <p class="hint">Meta広告マネージャのURLの act= の後の数字</p>
+      </div>
+
+      <div class="field">
+        <label for="manual-page-id">FacebookページID</label>
+        <input type="text" id="manual-page-id" placeholder="123456789012345">
+        <p class="hint">Facebookページの「基本データ」→「ページID」で確認できます</p>
+      </div>
+
+      <button class="btn btn-primary" onclick="handleDirectSetup()" id="go-builder-btn">
+        広告を入稿する
+      </button>
+    </div>
+    <p id="login-error" class="hint mt-2" style="color:var(--error);display:none;"></p>
+  </div>
+</div>
+
+<!-- ===== Step 2: Builder ===== -->
+<div id="builder-section" class="section">
+  <div class="flex-between mb-3">
+    <h1 style="margin-bottom:0;">広告作成</h1>
+    <button class="btn btn-outline btn-sm" onclick="goToLogin()">設定に戻る</button>
+  </div>
+
+  <!-- Campaign Selection -->
+  <div class="card">
+    <div class="field">
+      <label>キャンペーン選択</label>
+      <div style="display:flex;gap:8px;align-items:start;">
+        <select id="campaign-select" style="flex:1;">
+          <option value="">新規作成（DA‐入稿用キャンペーン）</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="fetchCampaigns()" id="fetch-campaigns-btn">
+          既存を取得
+        </button>
+      </div>
+      <p class="hint">既存キャンペーンに入稿する場合は「既存を取得」をクリックして選択してください</p>
+      <p id="campaign-fetch-status" class="hint mt-2" style="display:none;"></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <!-- Image Upload -->
+    <div class="field">
+      <label>画像ファイル（複数可）</label>
+      <div class="drop-zone" id="drop-zone"
+           onclick="document.getElementById('file-input').click()">
+        <p>ここに画像をドラッグ＆ドロップ、またはクリックして選択</p>
+        <p class="sub">JPG, PNG対応 / 複数選択可</p>
+      </div>
+      <input type="file" id="file-input" accept="image/*" multiple class="hidden">
+      <div id="image-count" class="text-sm mt-2" style="font-weight:500;display:none;"></div>
+      <div id="image-grid" class="image-grid"></div>
+    </div>
+
+    <!-- Body Text -->
+    <div class="field">
+      <label for="body-text">広告文</label>
+      <textarea id="body-text" rows="3" placeholder="広告の本文テキストを入力..."></textarea>
+    </div>
+
+    <!-- Headline -->
+    <div class="field">
+      <label for="headline">見出し</label>
+      <input type="text" id="headline" placeholder="広告の見出しを入力...">
+    </div>
+
+    <!-- Link URL -->
+    <div class="field">
+      <label for="link-url">リンク先URL</label>
+      <input type="url" id="link-url" placeholder="https://example.com">
+    </div>
+
+    <!-- URL Parameters -->
+    <div class="field">
+      <label for="url-params">URLパラメータ</label>
+      <input type="text" id="url-params" value="utm_source=meta&utm_medium=paid" placeholder="utm_source=meta&utm_medium=paid">
+      <p class="hint">自動付与: ?utm_creative=[広告名（画像名）]&amp;上記パラメータ</p>
+    </div>
+  </div>
+
+  <div class="card footer-bar">
+    <div class="info" id="submit-info">画像をアップロードしてください</div>
+    <button class="btn btn-primary" id="submit-btn" disabled onclick="startSubmission()">
+      入稿を開始
+    </button>
+  </div>
+</div>
+
+<!-- ===== Step 3: Progress ===== -->
+<div id="progress-section" class="section">
+  <div class="flex-between mb-3">
+    <h1 style="margin-bottom:0;">入稿進捗</h1>
+  </div>
+
+  <div class="card">
+    <div class="progress-status" id="progress-status">準備中...</div>
+    <div class="progress-bar-container">
+      <div class="progress-bar-fill" id="progress-bar"></div>
+    </div>
+    <div class="flex-between text-xs" style="color:var(--muted);">
+      <span id="progress-count">0 / 0</span>
+      <span id="progress-fail" style="color:var(--error);display:none;">失敗: 0</span>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="progress-items" id="progress-items"></div>
+  </div>
+
+  <div id="progress-done" class="card text-center" style="display:none;">
+    <p class="text-sm mb-2" id="done-message"></p>
+    <button class="btn btn-primary btn-sm" onclick="resetToBuilder()">新しい入稿を開始</button>
+  </div>
+</div>
+
+<script>
+// ===== Config =====
+// ★★★ ここにあなたのFacebookアプリのApp IDを設定してください ★★★
+const FB_APP_ID = '1699295671486963';
+
+// ===== State =====
+const state = {
+  accessToken: '',
+  adAccounts: [],
+  pages: [],
+  selectedAdAccountId: '',
+  selectedPageId: '',
+  imageFiles: new Map(), // filename -> File
+  fbUserName: '',
+};
+
+const API_VERSION = 'v21.0';
+const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
+const RATE_LIMIT_MS = 2000;
+
+// ===== Facebook SDK Init =====
+window.fbAsyncInit = function() {
+  FB.init({
+    appId: FB_APP_ID,
+    cookie: true,
+    xfbml: false,
+    version: API_VERSION,
+  });
+
+  // Check if already logged in
+  FB.getLoginStatus(function(response) {
+    if (response.status === 'connected') {
+      handleFbLoginSuccess(response.authResponse);
+    }
+  });
+};
+
+// ===== Facebook Login =====
+function loginWithFacebook() {
+  const btn = document.getElementById('fb-login-btn');
+  const errEl = document.getElementById('fb-login-error');
+  const statusEl = document.getElementById('fb-login-status');
+  errEl.style.display = 'none';
+
+  if (typeof FB === 'undefined') {
+    errEl.textContent = 'Facebook SDKの読み込みに失敗しました。ページを再読み込みしてください。';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'ログイン中...';
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Facebookのログイン画面を開いています...';
+
+  FB.login(function(response) {
+    btn.disabled = false;
+    btn.textContent = 'Facebookでログイン';
+
+    if (response.authResponse) {
+      handleFbLoginSuccess(response.authResponse);
+    } else {
+      statusEl.style.display = 'none';
+      errEl.textContent = 'ログインがキャンセルされました。';
+      errEl.style.display = 'block';
+    }
+  }, {
+    scope: 'ads_management,pages_show_list,pages_read_engagement',
+    auth_type: 'rerequest',
+  });
+}
+
+async function handleFbLoginSuccess(authResponse) {
+  const statusEl = document.getElementById('fb-login-status');
+  const errEl = document.getElementById('fb-login-error');
+  errEl.style.display = 'none';
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'トークンを取得しました。アカウント情報を読み込み中...';
+
+  state.accessToken = authResponse.accessToken;
+
+  // Show logged-in state
+  document.getElementById('fb-login-area').style.display = 'none';
+  document.getElementById('fb-logged-in').style.display = 'block';
+
+  // Get user name
+  try {
+    const userData = await metaFetch(`${BASE_URL}/me?fields=name&access_token=${state.accessToken}`);
+    state.fbUserName = userData.name || 'ログイン済み';
+    document.getElementById('fb-user-name').textContent = `${state.fbUserName} でログイン中`;
+  } catch {
+    document.getElementById('fb-user-name').textContent = 'ログイン済み';
+  }
+
+  // Fetch ad accounts and pages
+  try {
+    statusEl.textContent = '広告アカウントを取得中...';
+    const adAccounts = await metaFetchAll(
+      `${BASE_URL}/me/adaccounts?fields=id,name,account_status,currency&limit=100&access_token=${state.accessToken}`
+    );
+
+    statusEl.textContent = 'Facebookページを取得中...';
+    const pages = await metaFetchAll(
+      `${BASE_URL}/me/accounts?fields=id,name&limit=100&access_token=${state.accessToken}`
+    );
+
+    // Populate ad account dropdown
+    const adSelect = document.getElementById('fb-ad-account-select');
+    adSelect.innerHTML = '<option value="">選択してください</option>';
+    adAccounts.forEach(acc => {
+      const opt = document.createElement('option');
+      opt.value = acc.id;
+      const statusLabel = acc.account_status === 1 ? '' : '（無効）';
+      opt.textContent = `${acc.name || acc.id}${statusLabel}`;
+      adSelect.appendChild(opt);
+    });
+
+    // Populate page dropdown
+    const pageSelect = document.getElementById('fb-page-select');
+    pageSelect.innerHTML = '<option value="">選択してください</option>';
+    pages.forEach(page => {
+      const opt = document.createElement('option');
+      opt.value = page.id;
+      opt.textContent = page.name || page.id;
+      pageSelect.appendChild(opt);
+    });
+
+    // Show account selection
+    document.getElementById('fb-account-section').style.display = 'block';
+    statusEl.style.color = 'var(--success)';
+    statusEl.textContent = `広告アカウント ${adAccounts.length}件、ページ ${pages.length}件を取得しました`;
+  } catch (err) {
+    statusEl.style.display = 'none';
+    errEl.textContent = `アカウント情報の取得に失敗しました: ${err.message}`;
+    errEl.style.display = 'block';
+  }
+}
+
+function logoutFacebook() {
+  if (typeof FB !== 'undefined') {
+    FB.logout();
+  }
+  state.accessToken = '';
+  state.fbUserName = '';
+  document.getElementById('fb-login-area').style.display = 'block';
+  document.getElementById('fb-logged-in').style.display = 'none';
+  document.getElementById('fb-account-section').style.display = 'none';
+  document.getElementById('fb-login-status').style.display = 'none';
+  document.getElementById('fb-login-error').style.display = 'none';
+}
+
+function handleFbSetup() {
+  const adAccountId = document.getElementById('fb-ad-account-select').value;
+  const pageId = document.getElementById('fb-page-select').value;
+  const errEl = document.getElementById('fb-setup-error');
+  errEl.style.display = 'none';
+
+  if (!adAccountId) {
+    errEl.textContent = '広告アカウントを選択してください';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!pageId) {
+    errEl.textContent = 'Facebookページを選択してください';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  state.selectedAdAccountId = adAccountId;
+  state.selectedPageId = pageId;
+  showSection('builder-section');
+}
+
+function toggleManualSection() {
+  const section = document.getElementById('manual-section');
+  const btn = document.getElementById('manual-toggle-btn');
+  if (section.style.display === 'none') {
+    section.style.display = 'block';
+    btn.textContent = '非表示';
+  } else {
+    section.style.display = 'none';
+    btn.textContent = '表示';
+  }
+}
+
+// ===== Meta API Helper =====
+async function metaFetch(url, options = {}) {
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(url, options);
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      const err = data.error || {};
+      const code = err.code;
+      // Rate limit (#4, #32, #17) - retry with exponential backoff
+      if ((code === 4 || code === 32 || code === 17) && attempt < MAX_RETRIES) {
+        const waitSec = Math.pow(2, attempt + 1) * 30; // 60s, 120s, 240s
+        console.log(`Rate limit hit, waiting ${waitSec}s before retry (${attempt + 1}/${MAX_RETRIES})...`);
+        if (typeof onRetryStatus === 'function') {
+          onRetryStatus(`レート制限: ${waitSec}秒待機中... (リトライ ${attempt + 1}/${MAX_RETRIES})`);
+        }
+        await sleep(waitSec * 1000);
+        continue;
+      }
+      const msg = err.error_user_msg || err.message || 'Meta API error';
+      const title = err.error_user_title || '';
+      throw new Error(title ? `${title}: ${msg}` : msg);
+    }
+    return data;
+  }
+}
+
+// Global callback for retry status display
+let onRetryStatus = null;
+
+async function metaFetchAll(url) {
+  const all = [];
+  let nextUrl = url;
+  while (nextUrl) {
+    const data = await metaFetch(nextUrl);
+    if (data.data) all.push(...data.data);
+    nextUrl = data.paging?.next || null;
+    if (nextUrl) await sleep(1000); // pace pagination
+  }
+  return all;
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// ===== Section Navigation =====
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function goToLogin() { showSection('login-section'); }
+function resetToBuilder() {
+  state.imageFiles.clear();
+  document.getElementById('image-grid').innerHTML = '';
+  document.getElementById('image-count').style.display = 'none';
+  document.getElementById('body-text').value = '';
+  document.getElementById('headline').value = '';
+  document.getElementById('link-url').value = '';
+  document.getElementById('url-params').value = 'utm_source=meta&utm_medium=paid';
+  document.getElementById('campaign-select').selectedIndex = 0;
+  document.getElementById('campaign-fetch-status').style.display = 'none';
+  updateSubmitState();
+  showSection('builder-section');
+}
+
+// ===== Direct Setup (no API calls needed) =====
+function handleDirectSetup() {
+  const token = document.getElementById('access-token').value.trim();
+  const adAccountId = document.getElementById('manual-ad-account').value.replace(/\s/g, '');
+  const pageId = document.getElementById('manual-page-id').value.replace(/\s/g, '');
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+
+  // Validation
+  if (!token) {
+    errEl.style.color = 'var(--error)';
+    errEl.textContent = 'アクセストークンを入力してください';
+    errEl.style.display = 'block';
+    return;
+  }
+  // auto-prefix act_ if user entered digits only
+  let finalAdAccountId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+  if (!/^act_\d+$/.test(finalAdAccountId)) {
+    errEl.style.color = 'var(--error)';
+    errEl.textContent = '広告アカウントIDは数字で入力してください';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!pageId) {
+    errEl.style.color = 'var(--error)';
+    errEl.textContent = 'FacebookページIDを入力してください';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  state.accessToken = token;
+  state.selectedAdAccountId = finalAdAccountId;
+  state.selectedPageId = pageId;
+  showSection('builder-section');
+}
+
+// ===== Campaign Fetch =====
+async function fetchCampaigns() {
+  const statusEl = document.getElementById('campaign-fetch-status');
+  const btn = document.getElementById('fetch-campaigns-btn');
+  const select = document.getElementById('campaign-select');
+
+  btn.disabled = true;
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'キャンペーンを取得中...';
+
+  try {
+    const campaigns = await metaFetchAll(
+      `${BASE_URL}/${state.selectedAdAccountId}/campaigns?fields=id,name,objective,status&limit=100&access_token=${state.accessToken}`
+    );
+
+    select.innerHTML = '<option value="">新規作成（DA‐入稿用キャンペーン）</option>';
+    campaigns.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      const statusLabel = c.status === 'ACTIVE' ? '配信中' : c.status === 'PAUSED' ? '一時停止' : c.status;
+      opt.textContent = `${c.name}（${statusLabel}）`;
+      select.appendChild(opt);
+    });
+
+    statusEl.style.color = 'var(--success)';
+    statusEl.textContent = `${campaigns.length}件のキャンペーンを取得しました`;
+  } catch (err) {
+    statusEl.style.color = 'var(--error)';
+    statusEl.textContent = `取得エラー: ${err.message}`;
+  }
+  btn.disabled = false;
+}
+
+// ===== Image Upload =====
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('drag-over');
+});
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', (e) => {
+  handleFiles(e.target.files);
+  e.target.value = '';
+});
+
+function handleFiles(fileList) {
+  Array.from(fileList).forEach(f => {
+    if (f.type.startsWith('image/')) {
+      state.imageFiles.set(f.name, f);
+    }
+  });
+  renderImagePreviews();
+  updateSubmitState();
+}
+
+function removeImage(filename) {
+  state.imageFiles.delete(filename);
+  renderImagePreviews();
+  updateSubmitState();
+}
+
+function renderImagePreviews() {
+  const grid = document.getElementById('image-grid');
+  const countEl = document.getElementById('image-count');
+  grid.innerHTML = '';
+
+  if (state.imageFiles.size === 0) {
+    countEl.style.display = 'none';
+    return;
+  }
+  countEl.textContent = `${state.imageFiles.size}枚の画像が選択されています`;
+  countEl.style.display = 'block';
+
+  state.imageFiles.forEach((file, filename) => {
+    const item = document.createElement('div');
+    item.className = 'image-item';
+
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.alt = filename;
+    img.onload = () => URL.revokeObjectURL(img.src);
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = filename;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.onclick = (e) => { e.stopPropagation(); removeImage(filename); };
+
+    item.appendChild(img);
+    item.appendChild(name);
+    item.appendChild(removeBtn);
+    grid.appendChild(item);
+  });
+}
+
+function updateSubmitState() {
+  const hasImages = state.imageFiles.size > 0;
+  const body = document.getElementById('body-text').value.trim();
+  const headline = document.getElementById('headline').value.trim();
+  const link = document.getElementById('link-url').value.trim();
+  const valid = hasImages && body && headline && link;
+
+  document.getElementById('submit-btn').disabled = !valid;
+  document.getElementById('submit-info').textContent = hasImages
+    ? `画像${state.imageFiles.size}枚 → 広告${state.imageFiles.size}件を入稿`
+    : '画像をアップロードしてください';
+}
+
+// Update validation on input
+['body-text', 'headline', 'link-url'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updateSubmitState);
+});
+
+// ===== Submission =====
+async function startSubmission() {
+  const bodyText = document.getElementById('body-text').value.trim();
+  const headline = document.getElementById('headline').value.trim();
+  const linkUrl = document.getElementById('link-url').value.trim();
+  const urlParams = document.getElementById('url-params').value.trim();
+
+  showSection('progress-section');
+
+  // Wire retry status to progress display
+  onRetryStatus = (msg) => {
+    document.getElementById('progress-status').textContent = msg;
+  };
+
+  const itemsEl = document.getElementById('progress-items');
+  itemsEl.innerHTML = '';
+
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+
+  const filenames = Array.from(state.imageFiles.keys());
+  const campaignName = 'DA\u2010\u5165\u7a3F\u7528\u30AD\u30E3\u30F3\u30DA\u30FC\u30F3';
+
+  // Build ads list
+  const ads = filenames.map(filename => {
+    const adName = filename.replace(/\.[^.]+$/, '');
+    const separator = linkUrl.includes('?') ? '&' : '?';
+    const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
+    const extraParams = urlParams ? `&${urlParams}` : '';
+    return {
+      name: adName,
+      imageFilename: filename,
+      headline,
+      bodyText,
+      description: '',
+      linkUrl: `${linkUrl}${separator}${creativeParam}${extraParams}`,
+      ctaType: 'LEARN_MORE',
+      status: 'PAUSED',
+    };
+  });
+
+  // Count total: 1 campaign + 1 ad set + (image + creative + ad) * N
+  const totalItems = 1 + 1 + (ads.length * 3);
+  let completed = 0;
+  let failed = 0;
+
+  function updateProgress(step) {
+    document.getElementById('progress-status').textContent = step;
+    const pct = totalItems > 0 ? Math.round((completed + failed) / totalItems * 100) : 0;
+    document.getElementById('progress-bar').style.width = pct + '%';
+    document.getElementById('progress-count').textContent = `${completed} / ${totalItems}`;
+    if (failed > 0) {
+      const failEl = document.getElementById('progress-fail');
+      failEl.textContent = `失敗: ${failed}`;
+      failEl.style.display = 'inline';
+    }
+  }
+
+  function addItem(type, name, status, error) {
+    const badgeClass = {
+      campaign: 'badge-campaign',
+      adset: 'badge-adset',
+      image: 'badge-image',
+      creative: 'badge-creative',
+      ad: 'badge-ad',
+    }[type] || '';
+    const typeLabel = {
+      campaign: 'キャンペーン',
+      adset: '広告セット',
+      image: '画像',
+      creative: 'クリエイティブ',
+      ad: '広告',
+    }[type] || type;
+    const statusClass = status === 'success' ? 'status-success'
+      : status === 'error' ? 'status-error' : 'status-progress';
+    const statusLabel = status === 'success' ? '成功'
+      : status === 'error' ? '失敗' : '処理中...';
+
+    const div = document.createElement('div');
+    div.className = 'progress-item';
+    div.innerHTML = `
+      <div>
+        <span class="type-badge ${badgeClass}">${typeLabel}</span>
+        <span>${escapeHtml(name)}</span>
+        ${error ? `<div class="error-detail">${escapeHtml(error)}</div>` : ''}
+      </div>
+      <span class="${statusClass}">${statusLabel}</span>
+    `;
+    itemsEl.appendChild(div);
+    itemsEl.scrollTop = itemsEl.scrollHeight;
+    return div;
+  }
+
+  function updateItem(div, status, error) {
+    const statusClass = status === 'success' ? 'status-success'
+      : status === 'error' ? 'status-error' : 'status-progress';
+    const statusLabel = status === 'success' ? '成功'
+      : status === 'error' ? '失敗' : '処理中...';
+    const statusSpan = div.querySelector('span:last-child');
+    statusSpan.className = statusClass;
+    statusSpan.textContent = statusLabel;
+    if (error) {
+      let errDiv = div.querySelector('.error-detail');
+      if (!errDiv) {
+        errDiv = document.createElement('div');
+        errDiv.className = 'error-detail';
+        div.querySelector('div').appendChild(errDiv);
+      }
+      errDiv.textContent = error;
+    }
+  }
+
+  // Check if user selected an existing campaign
+  const selectedCampaignId = document.getElementById('campaign-select').value;
+
+  try {
+    // Step 1: Campaign
+    let campaignId = null;
+
+    if (selectedCampaignId) {
+      // Use the campaign selected from dropdown
+      const selectedOption = document.getElementById('campaign-select').selectedOptions[0];
+      campaignId = selectedCampaignId;
+      addItem('campaign', `${selectedOption.textContent}（選択済み）`, 'success');
+      completed++;
+      updateProgress('選択したキャンペーンを使用');
+    } else {
+      // Auto: check for existing "DA‐入稿用キャンペーン" or create new
+      updateProgress('既存キャンペーンを検索中...');
+
+      try {
+        const existingCampaigns = await metaFetchAll(
+          `${BASE_URL}/${state.selectedAdAccountId}/campaigns?fields=id,name,objective,status&limit=100&access_token=${state.accessToken}`
+        );
+        const existing = existingCampaigns.find(c => c.name === campaignName);
+        if (existing) {
+          campaignId = existing.id;
+          addItem('campaign', `${campaignName}（既存を使用）`, 'success');
+          completed++;
+          updateProgress('既存キャンペーンを使用');
+        }
+      } catch (e) {
+        // Failed to fetch, will try to create
+      }
+    }
+
+    if (!campaignId) {
+      updateProgress(`キャンペーン作成: ${campaignName}`);
+      const campDiv = addItem('campaign', campaignName, 'progress');
+      try {
+        await sleep(RATE_LIMIT_MS);
+        const params = new URLSearchParams();
+        params.append('name', campaignName);
+        params.append('objective', 'OUTCOME_TRAFFIC');
+        params.append('special_ad_categories', '[]');
+        params.append('status', 'PAUSED');
+        params.append('is_adset_budget_sharing_enabled', 'false');
+        params.append('access_token', state.accessToken);
+        const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/campaigns`, {
+          method: 'POST', body: params,
+        });
+        campaignId = result.id;
+        updateItem(campDiv, 'success');
+        completed++;
+      } catch (err) {
+        updateItem(campDiv, 'error', err.message);
+        failed++;
+      }
+      updateProgress('キャンペーン作成完了');
+    }
+
+    if (!campaignId) {
+      document.getElementById('progress-done').style.display = 'block';
+      document.getElementById('done-message').textContent = 'キャンペーンの作成に失敗しました。アクセストークンと権限を確認してください。';
+      return;
+    }
+
+    // Step 2: Ad Set
+    const adSetName = `広告セット_${dateStr}`;
+    updateProgress(`広告セット作成: ${adSetName}`);
+    const adSetDiv = addItem('adset', adSetName, 'progress');
+    let adSetId = null;
+
+    try {
+      await sleep(RATE_LIMIT_MS);
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      const params = new URLSearchParams();
+      params.append('name', adSetName);
+      params.append('campaign_id', campaignId);
+      params.append('daily_budget', '2000');
+      params.append('optimization_goal', 'LINK_CLICKS');
+      params.append('billing_event', 'IMPRESSIONS');
+      params.append('bid_strategy', 'LOWEST_COST_WITHOUT_CAP');
+      params.append('start_time', tomorrow.toISOString());
+      params.append('targeting', JSON.stringify({
+        geo_locations: { countries: ['JP'] },
+        age_min: 18,
+        age_max: 65,
+      }));
+      params.append('status', 'PAUSED');
+      params.append('access_token', state.accessToken);
+
+      const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adsets`, {
+        method: 'POST', body: params,
+      });
+      adSetId = result.id;
+      updateItem(adSetDiv, 'success');
+      completed++;
+    } catch (err) {
+      updateItem(adSetDiv, 'error', err.message);
+      failed++;
+    }
+    updateProgress('広告セット作成完了');
+
+    if (!adSetId) {
+      // Cannot continue without ad set
+      failed += ads.length * 3;
+      updateProgress('完了');
+      document.getElementById('progress-done').style.display = 'block';
+      document.getElementById('done-message').textContent = `完了: 成功 ${completed}件 / 失敗 ${failed}件`;
+      return;
+    }
+
+    // Step 3: Ads (image -> creative -> ad)
+    for (const ad of ads) {
+      // Upload image
+      updateProgress(`画像アップロード: ${ad.imageFilename}`);
+      const imgDiv = addItem('image', ad.imageFilename, 'progress');
+      let imageHash = null;
+
+      try {
+        await sleep(RATE_LIMIT_MS);
+        const file = state.imageFiles.get(ad.imageFilename);
+        if (!file) throw new Error('画像ファイルが見つかりません');
+
+        const formData = new FormData();
+        formData.append('filename', file, ad.imageFilename);
+        formData.append('access_token', state.accessToken);
+
+        const imgResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adimages`, {
+          method: 'POST', body: formData,
+        });
+        const images = imgResult.images;
+        const imgData = Object.values(images)[0];
+        imageHash = imgData.hash;
+        updateItem(imgDiv, 'success');
+        completed++;
+      } catch (err) {
+        updateItem(imgDiv, 'error', err.message);
+        failed += 3; // image + creative + ad
+        updateProgress(`画像アップロード失敗: ${ad.imageFilename}`);
+        continue;
+      }
+      updateProgress(`画像アップロード完了: ${ad.imageFilename}`);
+
+      // Create creative
+      updateProgress(`クリエイティブ作成: ${ad.name}`);
+      const crDiv = addItem('creative', `${ad.name} クリエイティブ`, 'progress');
+      let creativeId = null;
+
+      try {
+        await sleep(RATE_LIMIT_MS);
+        const objectStorySpec = {
+          page_id: state.selectedPageId,
+          link_data: {
+            image_hash: imageHash,
+            link: ad.linkUrl,
+            message: ad.bodyText,
+            name: ad.headline,
+            description: ad.description,
+            call_to_action: {
+              type: ad.ctaType,
+              value: { link: ad.linkUrl },
+            },
+          },
+        };
+        const params = new URLSearchParams();
+        params.append('name', `${ad.name} - Creative`);
+        params.append('object_story_spec', JSON.stringify(objectStorySpec));
+        params.append('access_token', state.accessToken);
+
+        const crResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adcreatives`, {
+          method: 'POST', body: params,
+        });
+        creativeId = crResult.id;
+        updateItem(crDiv, 'success');
+        completed++;
+      } catch (err) {
+        updateItem(crDiv, 'error', err.message);
+        failed += 2; // creative + ad
+        updateProgress(`クリエイティブ作成失敗: ${ad.name}`);
+        continue;
+      }
+      updateProgress(`クリエイティブ作成完了: ${ad.name}`);
+
+      // Create ad
+      updateProgress(`広告作成: ${ad.name}`);
+      const adDiv = addItem('ad', ad.name, 'progress');
+
+      try {
+        await sleep(RATE_LIMIT_MS);
+        const creativeDof = {
+          creative_features_spec: {
+            image_enhancement: { enroll_status: 'OPT_OUT' },
+            text_optimizations: { enroll_status: 'OPT_OUT' },
+            inline_comment: { enroll_status: 'OPT_OUT' },
+            image_templates: { enroll_status: 'OPT_OUT' },
+            image_touchups: { enroll_status: 'OPT_OUT' },
+            image_brightness_and_contrast: { enroll_status: 'OPT_OUT' },
+            image_uncrop: { enroll_status: 'OPT_OUT' },
+            adapt_to_placement: { enroll_status: 'OPT_OUT' },
+            site_extensions: { enroll_status: 'OPT_OUT' },
+            description_automation: { enroll_status: 'OPT_OUT' },
+          },
+        };
+
+        const params = new URLSearchParams();
+        params.append('name', ad.name);
+        params.append('adset_id', adSetId);
+        params.append('creative', JSON.stringify({ creative_id: creativeId }));
+        params.append('status', 'PAUSED');
+        params.append('creative_degrees_of_freedom_spec', JSON.stringify(creativeDof));
+        params.append('access_token', state.accessToken);
+
+        const adResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/ads`, {
+          method: 'POST', body: params,
+        });
+        updateItem(adDiv, 'success');
+        completed++;
+      } catch (err) {
+        updateItem(adDiv, 'error', err.message);
+        failed++;
+      }
+      updateProgress(`広告作成完了: ${ad.name}`);
+    }
+
+  } catch (err) {
+    updateProgress(`エラー: ${err.message}`);
+  }
+
+  onRetryStatus = null;
+  updateProgress('完了');
+  document.getElementById('progress-done').style.display = 'block';
+  const msg = failed > 0
+    ? `完了: 成功 ${completed}件 / 失敗 ${failed}件`
+    : `全 ${completed}件 の入稿が完了しました`;
+  document.getElementById('done-message').textContent = msg;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.appendChild(document.createTextNode(str));
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
