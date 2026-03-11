@@ -1,0 +1,3 @@
+campaign_name,campaign_objective,campaign_budget,adset_name,adset_budget,age_min,age_max,countries,ad_name,image_filename,headline,body_text,description,link_url,cta_type
+夏セール2026,OUTCOME_SALES,5000,女性25-45,2500,25,45,JP,広告A,summer-1.jpg,50%OFF,夏のコレクションをチェック,送料無料,https://example.com,SHOP_NOW
+夏セール2026,OUTCOME_SALES,5000,女性25-45,2500,25,45,JP,広告B,summer-2.jpg,新商品入荷,最新スタイルを発見,期間限定,https://example.com/new,LEARN_MORE
