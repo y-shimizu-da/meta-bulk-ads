@@ -281,14 +281,16 @@
   <div id="fb-account-section" class="card" style="display:none;">
     <h2>アカウント選択</h2>
     <div class="field">
-      <label for="fb-ad-account-select">広告アカウント</label>
-      <select id="fb-ad-account-select">
+      <label for="fb-ad-account-filter">広告アカウント</label>
+      <input type="text" id="fb-ad-account-filter" placeholder="アカウント名で検索..." oninput="filterSelect('fb-ad-account-filter','fb-ad-account-select')">
+      <select id="fb-ad-account-select" size="6" style="margin-top:4px;">
         <option value="">読み込み中...</option>
       </select>
     </div>
     <div class="field">
-      <label for="fb-page-select">Facebookページ</label>
-      <select id="fb-page-select">
+      <label for="fb-page-filter">Facebookページ</label>
+      <input type="text" id="fb-page-filter" placeholder="ページ名で検索..." oninput="filterSelect('fb-page-filter','fb-page-select')">
+      <select id="fb-page-select" size="6" style="margin-top:4px;">
         <option value="">読み込み中...</option>
       </select>
     </div>
@@ -461,6 +463,51 @@ const API_VERSION = 'v21.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const RATE_LIMIT_MS = 2000;
 
+// ===== Select Filter =====
+// Store all options for filtering
+const selectOptionsData = {
+  'fb-ad-account-select': [],
+  'fb-page-select': [],
+};
+
+function filterSelect(filterId, selectId) {
+  const query = document.getElementById(filterId).value.toLowerCase();
+  const select = document.getElementById(selectId);
+  const options = selectOptionsData[selectId] || [];
+
+  select.innerHTML = '';
+  const filtered = query
+    ? options.filter(o => o.text.toLowerCase().includes(query))
+    : options;
+
+  if (filtered.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '該当なし';
+    opt.disabled = true;
+    select.appendChild(opt);
+  } else {
+    filtered.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.text;
+      select.appendChild(opt);
+    });
+  }
+}
+
+function populateSelect(selectId, items) {
+  selectOptionsData[selectId] = items;
+  const select = document.getElementById(selectId);
+  select.innerHTML = '';
+  items.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.text;
+    select.appendChild(opt);
+  });
+}
+
 // ===== Facebook SDK Init =====
 window.fbAsyncInit = function() {
   FB.init({
@@ -550,25 +597,18 @@ async function handleFbLoginSuccess(authResponse) {
     );
 
     // Populate ad account dropdown
-    const adSelect = document.getElementById('fb-ad-account-select');
-    adSelect.innerHTML = '<option value="">選択してください</option>';
-    adAccounts.forEach(acc => {
-      const opt = document.createElement('option');
-      opt.value = acc.id;
+    const adItems = adAccounts.map(acc => {
       const statusLabel = acc.account_status === 1 ? '' : '（無効）';
-      opt.textContent = `${acc.name || acc.id}${statusLabel}`;
-      adSelect.appendChild(opt);
+      return { value: acc.id, text: `${acc.name || acc.id}${statusLabel}` };
     });
+    populateSelect('fb-ad-account-select', adItems);
 
     // Populate page dropdown
-    const pageSelect = document.getElementById('fb-page-select');
-    pageSelect.innerHTML = '<option value="">選択してください</option>';
-    pages.forEach(page => {
-      const opt = document.createElement('option');
-      opt.value = page.id;
-      opt.textContent = page.name || page.id;
-      pageSelect.appendChild(opt);
-    });
+    const pageItems = pages.map(page => ({
+      value: page.id,
+      text: page.name || page.id,
+    }));
+    populateSelect('fb-page-select', pageItems);
 
     // Show account selection
     document.getElementById('fb-account-section').style.display = 'block';
