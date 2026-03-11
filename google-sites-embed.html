@@ -1199,6 +1199,7 @@ async function startSubmission() {
         const params = new URLSearchParams();
         params.append('name', `${ad.name} - Creative`);
         params.append('object_story_spec', JSON.stringify(objectStorySpec));
+        params.append('contextual_multi_ads', JSON.stringify({ enroll_status: 'OPT_OUT' }));
         params.append('access_token', state.accessToken);
 
         const crResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adcreatives`, {
@@ -1224,15 +1225,17 @@ async function startSubmission() {
         const creativeDof = {
           creative_features_spec: {
             image_enhancement: { enroll_status: 'OPT_OUT' },
+            image_brightness_and_contrast: { enroll_status: 'OPT_OUT' },
             text_optimizations: { enroll_status: 'OPT_OUT' },
             inline_comment: { enroll_status: 'OPT_OUT' },
             image_templates: { enroll_status: 'OPT_OUT' },
             image_touchups: { enroll_status: 'OPT_OUT' },
-            image_brightness_and_contrast: { enroll_status: 'OPT_OUT' },
             image_uncrop: { enroll_status: 'OPT_OUT' },
             adapt_to_placement: { enroll_status: 'OPT_OUT' },
             site_extensions: { enroll_status: 'OPT_OUT' },
             description_automation: { enroll_status: 'OPT_OUT' },
+            generate_cta: { enroll_status: 'OPT_OUT' },
+            enhance_cta: { enroll_status: 'OPT_OUT' },
           },
         };
 
