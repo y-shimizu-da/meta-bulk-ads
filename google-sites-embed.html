@@ -296,9 +296,10 @@
         </select>
         <p id="fb-page-select-hint" class="hint" style="display:none;color:var(--warning);">ページを取得できませんでした。アプリが開発モードの場合はテスター登録が必要です。下のIDを直接入力してください。</p>
       </div>
-      <div style="margin-top:8px;">
-        <input type="text" id="fb-page-manual-id" placeholder="ページIDを直接入力（例: 123456789012345）">
-        <p class="hint">ドロップダウンで選択済みの場合は入力不要 / ページ「基本データ」→「ページID」で確認</p>
+      <div style="margin-top:8px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">
+        <label style="font-size:0.85rem;font-weight:500;display:block;margin-bottom:4px;">ページIDを直接入力（ドロップダウンに表示されない場合）</label>
+        <input type="text" id="fb-page-manual-id" placeholder="例: 123456789012345" style="width:100%;box-sizing:border-box;">
+        <p class="hint" style="margin-top:4px;">Facebookページ管理画面「基本データ」→「ページID」で確認できます。入力した場合はドロップダウンより優先されます。</p>
       </div>
     </div>
     <button class="btn btn-primary" onclick="handleFbSetup()" id="fb-go-btn">
@@ -728,7 +729,7 @@ function handleFbSetup() {
   // ページはドロップダウンまたは手動入力から取得
   const pageFromSelect = document.getElementById('fb-page-select').value;
   const pageFromManual = (document.getElementById('fb-page-manual-id').value || '').trim();
-  const pageId = pageFromSelect || pageFromManual;
+  const pageId = pageFromManual || pageFromSelect; // 手動入力を優先
   const errEl = document.getElementById('fb-setup-error');
   errEl.style.display = 'none';
 
