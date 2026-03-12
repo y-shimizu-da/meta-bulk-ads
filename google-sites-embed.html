@@ -615,9 +615,23 @@ async function handleFbLoginSuccess(authResponse) {
     );
 
     statusEl.textContent = 'Facebookページを取得中...';
-    const pages = await metaFetchAll(
-      `${BASE_URL}/me/accounts?fields=id,name&limit=100&access_token=${state.accessToken}`
-    );
+
+    // Try both personal pages (me/accounts) and Business Manager assigned pages (me/assigned_pages)
+    let pages = [];
+    const pageMap = new Map(); // id -> name, for dedup
+    try {
+      const personalPages = await metaFetchAll(
+        `${BASE_URL}/me/accounts?fields=id,name&limit=100&access_token=${state.accessToken}`
+      );
+      personalPages.forEach(p => pageMap.set(p.id, p.name || p.id));
+    } catch (e) { /* ignore */ }
+    try {
+      const assignedPages = await metaFetchAll(
+        `${BASE_URL}/me/assigned_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
+      );
+      assignedPages.forEach(p => pageMap.set(p.id, p.name || p.id));
+    } catch (e) { /* ignore */ }
+    pages = Array.from(pageMap.entries()).map(([id, name]) => ({ id, name }));
 
     // Populate ad account dropdown
     const adItems = adAccounts.map(acc => {
