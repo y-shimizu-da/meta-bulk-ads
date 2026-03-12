@@ -306,6 +306,14 @@
       広告を入稿する
     </button>
     <p id="fb-setup-error" class="hint mt-2" style="color:var(--error);display:none;"></p>
+
+    <!-- Page fetch diagnostic log -->
+    <div id="page-debug-area" style="display:none;margin-top:12px;">
+      <details>
+        <summary style="font-size:0.8rem;color:var(--muted);cursor:pointer;">ページ取得ログ（問題がある場合に確認）</summary>
+        <pre id="page-debug-log" style="font-size:0.75rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px;margin-top:4px;white-space:pre-wrap;word-break:break-all;"></pre>
+      </details>
+    </div>
   </div>
 
   <!-- Divider -->
@@ -479,6 +487,7 @@ const state = {
   selectedPageId: '',
   imageFiles: new Map(), // filename -> File
   fbUserName: '',
+  pageDebugLog: [],
 };
 
 const TEST_CAMPAIGN_NAME = 'DA\u2010\u5165\u7a3F\u7528\u30C6\u30B9\u30C8\u30AD\u30E3\u30F3\u30DA\u30FC\u30F3'; // DA‐入稿用テストキャンペーン
@@ -621,6 +630,7 @@ async function handleFbLoginSuccess(authResponse) {
     // Try multiple endpoints to get Facebook Pages
     let pages = [];
     const pageMap = new Map(); // id -> name, for dedup
+    const pageDebugLog = [];
 
     // 1. Personal pages (me/accounts)
     try {
@@ -628,7 +638,10 @@ async function handleFbLoginSuccess(authResponse) {
         `${BASE_URL}/me/accounts?fields=id,name&limit=100&access_token=${state.accessToken}`
       );
       personalPages.forEach(p => pageMap.set(p.id, p.name || p.id));
-    } catch (e) { /* ignore */ }
+      pageDebugLog.push(`me/accounts: ${personalPages.length}件取得`);
+    } catch (e) {
+      pageDebugLog.push(`me/accounts: エラー (${e.message})`);
+    }
 
     // 2. Business Manager assigned pages (me/assigned_pages)
     try {
@@ -636,45 +649,44 @@ async function handleFbLoginSuccess(authResponse) {
         `${BASE_URL}/me/assigned_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
       );
       assignedPages.forEach(p => pageMap.set(p.id, p.name || p.id));
-    } catch (e) { /* ignore */ }
-
-    // 3. Business Manager owned pages (via /me/businesses -> /{biz_id}/owned_pages)
-    if (pageMap.size === 0) {
-      try {
-        const bizRes = await metaFetch(
-          `${BASE_URL}/me/businesses?fields=id,name&limit=50&access_token=${state.accessToken}`
-        );
-        const businesses = bizRes.data || [];
-        for (const biz of businesses) {
-          try {
-            const bizPages = await metaFetchAll(
-              `${BASE_URL}/${biz.id}/owned_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
-            );
-            bizPages.forEach(p => pageMap.set(p.id, p.name || p.id));
-          } catch (e) { /* ignore */ }
-        }
-      } catch (e) { /* ignore */ }
+      pageDebugLog.push(`me/assigned_pages: ${assignedPages.length}件取得`);
+    } catch (e) {
+      pageDebugLog.push(`me/assigned_pages: エラー (${e.message})`);
     }
 
-    // 4. Business Manager client pages (/{biz_id}/client_pages)
-    if (pageMap.size === 0) {
-      try {
-        const bizRes = await metaFetch(
-          `${BASE_URL}/me/businesses?fields=id,name&limit=50&access_token=${state.accessToken}`
-        );
-        const businesses = bizRes.data || [];
-        for (const biz of businesses) {
-          try {
-            const clientPages = await metaFetchAll(
-              `${BASE_URL}/${biz.id}/client_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
-            );
-            clientPages.forEach(p => pageMap.set(p.id, p.name || p.id));
-          } catch (e) { /* ignore */ }
+    // 3. Business Manager owned/client pages (via /me/businesses)
+    try {
+      const bizRes = await metaFetch(
+        `${BASE_URL}/me/businesses?fields=id,name&limit=50&access_token=${state.accessToken}`
+      );
+      const businesses = bizRes.data || [];
+      pageDebugLog.push(`me/businesses: ${businesses.length}件 (${businesses.map(b => b.name).join(', ')})`);
+      for (const biz of businesses) {
+        try {
+          const bizPages = await metaFetchAll(
+            `${BASE_URL}/${biz.id}/owned_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
+          );
+          bizPages.forEach(p => pageMap.set(p.id, p.name || p.id));
+          pageDebugLog.push(`  ${biz.name}/owned_pages: ${bizPages.length}件`);
+        } catch (e) {
+          pageDebugLog.push(`  ${biz.name}/owned_pages: エラー (${e.message})`);
         }
-      } catch (e) { /* ignore */ }
+        try {
+          const clientPages = await metaFetchAll(
+            `${BASE_URL}/${biz.id}/client_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
+          );
+          clientPages.forEach(p => pageMap.set(p.id, p.name || p.id));
+          pageDebugLog.push(`  ${biz.name}/client_pages: ${clientPages.length}件`);
+        } catch (e) {
+          pageDebugLog.push(`  ${biz.name}/client_pages: エラー (${e.message})`);
+        }
+      }
+    } catch (e) {
+      pageDebugLog.push(`me/businesses: エラー (${e.message})`);
     }
 
     pages = Array.from(pageMap.entries()).map(([id, name]) => ({ id, name }));
+    state.pageDebugLog = pageDebugLog;
 
     // Populate ad account dropdown
     const adItems = adAccounts.map(acc => {
@@ -704,6 +716,13 @@ async function handleFbLoginSuccess(authResponse) {
       ? `ページ ${pages.length}件を取得しました`
       : 'ページは手動でIDを入力してください';
     statusEl.textContent = `広告アカウント ${adAccounts.length}件、${pageMsg}`;
+
+    // Show debug log
+    const debugEl = document.getElementById('page-debug-log');
+    if (debugEl) {
+      debugEl.textContent = pageDebugLog.join('\n');
+      document.getElementById('page-debug-area').style.display = 'block';
+    }
   } catch (err) {
     statusEl.style.display = 'none';
     errEl.textContent = `アカウント情報の取得に失敗しました: ${err.message}`;
