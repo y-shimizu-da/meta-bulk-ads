@@ -372,6 +372,20 @@
       <p class="hint">既存キャンペーンに入稿する場合は「既存を取得」をクリックして選択してください</p>
       <p id="campaign-fetch-status" class="hint mt-2" style="display:none;"></p>
     </div>
+    <!-- Ad Set Selection (shown when non-test campaign is selected) -->
+    <div id="adset-select-area" class="field" style="display:none;">
+      <label>広告セット選択</label>
+      <div style="display:flex;gap:8px;align-items:start;">
+        <select id="adset-select" style="flex:1;">
+          <option value="">新規作成（広告セット_日時）</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="fetchAdSets()" id="fetch-adsets-btn">
+          取得
+        </button>
+      </div>
+      <p class="hint">既存広告セットに入稿する場合は「取得」をクリックして選択してください</p>
+      <p id="adset-fetch-status" class="hint mt-2" style="display:none;"></p>
+    </div>
   </div>
 
   <div class="card">
@@ -464,6 +478,9 @@ const state = {
   imageFiles: new Map(), // filename -> File
   fbUserName: '',
 };
+
+const TEST_CAMPAIGN_NAME = 'DA\u2010\u5165\u7a3F\u7528\u30C6\u30B9\u30C8\u30AD\u30E3\u30F3\u30DA\u30FC\u30F3'; // DA‐入稿用テストキャンペーン
+const campaignNames = {}; // campaignId -> name
 
 const API_VERSION = 'v21.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -751,6 +768,9 @@ function resetToBuilder() {
   document.getElementById('url-params').value = 'utm_source=meta&utm_medium=paid';
   document.getElementById('campaign-select').selectedIndex = 0;
   document.getElementById('campaign-fetch-status').style.display = 'none';
+  document.getElementById('adset-select-area').style.display = 'none';
+  document.getElementById('adset-select').innerHTML = '<option value="">新規作成（広告セット_日時）</option>';
+  document.getElementById('adset-fetch-status').style.display = 'none';
   updateSubmitState();
   showSection('builder-section');
 }
@@ -809,6 +829,7 @@ async function fetchCampaigns() {
 
     select.innerHTML = '<option value="">新規作成（DA‐入稿用キャンペーン）</option>';
     campaigns.forEach(c => {
+      campaignNames[c.id] = c.name;
       const opt = document.createElement('option');
       opt.value = c.id;
       const statusLabel = c.status === 'ACTIVE' ? '配信中' : c.status === 'PAUSED' ? '一時停止' : c.status;
@@ -818,6 +839,54 @@ async function fetchCampaigns() {
 
     statusEl.style.color = 'var(--success)';
     statusEl.textContent = `${campaigns.length}件のキャンペーンを取得しました`;
+  } catch (err) {
+    statusEl.style.color = 'var(--error)';
+    statusEl.textContent = `取得エラー: ${err.message}`;
+  }
+  btn.disabled = false;
+}
+
+// ===== Campaign Select Change =====
+document.getElementById('campaign-select').addEventListener('change', function() {
+  const campaignId = this.value;
+  const adsetArea = document.getElementById('adset-select-area');
+  if (!campaignId || campaignNames[campaignId] === TEST_CAMPAIGN_NAME) {
+    adsetArea.style.display = 'none';
+  } else {
+    adsetArea.style.display = 'block';
+    document.getElementById('adset-select').innerHTML = '<option value="">新規作成（広告セット_日時）</option>';
+    document.getElementById('adset-fetch-status').style.display = 'none';
+  }
+});
+
+// ===== Ad Set Fetch =====
+async function fetchAdSets() {
+  const campaignId = document.getElementById('campaign-select').value;
+  if (!campaignId) return;
+
+  const statusEl = document.getElementById('adset-fetch-status');
+  const btn = document.getElementById('fetch-adsets-btn');
+  const select = document.getElementById('adset-select');
+
+  btn.disabled = true;
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = '広告セットを取得中...';
+
+  try {
+    const adsets = await metaFetchAll(
+      `${BASE_URL}/${campaignId}/adsets?fields=id,name,status&limit=100&access_token=${state.accessToken}`
+    );
+    select.innerHTML = '<option value="">新規作成（広告セット_日時）</option>';
+    adsets.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      const statusLabel = s.status === 'ACTIVE' ? '配信中' : s.status === 'PAUSED' ? '一時停止' : s.status;
+      opt.textContent = `${s.name}（${statusLabel}）`;
+      select.appendChild(opt);
+    });
+    statusEl.style.color = 'var(--success)';
+    statusEl.textContent = `${adsets.length}件の広告セットを取得しました`;
   } catch (err) {
     statusEl.style.color = 'var(--error)';
     statusEl.textContent = `取得エラー: ${err.message}`;
@@ -1095,44 +1164,54 @@ async function startSubmission() {
     }
 
     // Step 2: Ad Set
-    const adSetName = `広告セット_${dateStr}`;
-    updateProgress(`広告セット作成: ${adSetName}`);
-    const adSetDiv = addItem('adset', adSetName, 'progress');
     let adSetId = null;
+    const selectedAdSetId = document.getElementById('adset-select').value;
 
-    try {
-      await sleep(RATE_LIMIT_MS);
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(0, 0, 0, 0);
-
-      const params = new URLSearchParams();
-      params.append('name', adSetName);
-      params.append('campaign_id', campaignId);
-      params.append('daily_budget', '2000');
-      params.append('optimization_goal', 'LINK_CLICKS');
-      params.append('billing_event', 'IMPRESSIONS');
-      params.append('bid_strategy', 'LOWEST_COST_WITHOUT_CAP');
-      params.append('start_time', tomorrow.toISOString());
-      params.append('targeting', JSON.stringify({
-        geo_locations: { countries: ['JP'] },
-        age_min: 18,
-        age_max: 65,
-      }));
-      params.append('status', 'PAUSED');
-      params.append('access_token', state.accessToken);
-
-      const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adsets`, {
-        method: 'POST', body: params,
-      });
-      adSetId = result.id;
-      updateItem(adSetDiv, 'success');
+    if (selectedAdSetId) {
+      const selectedAdSetOption = document.getElementById('adset-select').selectedOptions[0];
+      adSetId = selectedAdSetId;
+      addItem('adset', `${selectedAdSetOption.textContent}（選択済み）`, 'success');
       completed++;
-    } catch (err) {
-      updateItem(adSetDiv, 'error', err.message);
-      failed++;
+      updateProgress('選択した広告セットを使用');
+    } else {
+      const adSetName = `広告セット_${dateStr}`;
+      updateProgress(`広告セット作成: ${adSetName}`);
+      const adSetDiv = addItem('adset', adSetName, 'progress');
+
+      try {
+        await sleep(RATE_LIMIT_MS);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+
+        const params = new URLSearchParams();
+        params.append('name', adSetName);
+        params.append('campaign_id', campaignId);
+        params.append('daily_budget', '2000');
+        params.append('optimization_goal', 'LINK_CLICKS');
+        params.append('billing_event', 'IMPRESSIONS');
+        params.append('bid_strategy', 'LOWEST_COST_WITHOUT_CAP');
+        params.append('start_time', tomorrow.toISOString());
+        params.append('targeting', JSON.stringify({
+          geo_locations: { countries: ['JP'] },
+          age_min: 18,
+          age_max: 65,
+        }));
+        params.append('status', 'PAUSED');
+        params.append('access_token', state.accessToken);
+
+        const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adsets`, {
+          method: 'POST', body: params,
+        });
+        adSetId = result.id;
+        updateItem(adSetDiv, 'success');
+        completed++;
+      } catch (err) {
+        updateItem(adSetDiv, 'error', err.message);
+        failed++;
+      }
+      updateProgress('広告セット作成完了');
     }
-    updateProgress('広告セット作成完了');
 
     if (!adSetId) {
       // Cannot continue without ad set
