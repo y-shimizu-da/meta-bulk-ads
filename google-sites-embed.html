@@ -291,13 +291,14 @@
       <label for="fb-page-filter">Facebookページ</label>
       <div id="fb-page-select-area">
         <input type="text" id="fb-page-filter" placeholder="ページ名で検索..." oninput="filterSelect('fb-page-filter','fb-page-select')">
-        <select id="fb-page-select" size="6" style="margin-top:4px;">
+        <select id="fb-page-select" size="4" style="margin-top:4px;">
           <option value="">読み込み中...</option>
         </select>
+        <p id="fb-page-select-hint" class="hint" style="display:none;color:var(--warning);">ページが表示されない場合は下のIDを直接入力してください</p>
       </div>
-      <div id="fb-page-manual-area" style="display:none;">
-        <input type="text" id="fb-page-manual-id" placeholder="FacebookページIDを入力（例: 123456789012345）">
-        <p class="hint">Facebookページの「基本データ」→「ページID」で確認できます</p>
+      <div style="margin-top:8px;">
+        <input type="text" id="fb-page-manual-id" placeholder="ページIDを直接入力（例: 123456789012345）">
+        <p class="hint">ドロップダウンで選択済みの場合は入力不要 / ページ「基本データ」→「ページID」で確認</p>
       </div>
     </div>
     <button class="btn btn-primary" onclick="handleFbSetup()" id="fb-go-btn">
@@ -647,12 +648,11 @@ async function handleFbLoginSuccess(authResponse) {
         text: page.name || page.id,
       }));
       populateSelect('fb-page-select', pageItems);
-      document.getElementById('fb-page-select-area').style.display = 'block';
-      document.getElementById('fb-page-manual-area').style.display = 'none';
+      document.getElementById('fb-page-select-hint').style.display = 'none';
     } else {
-      // ページが取得できない場合は手動入力に切り替え
-      document.getElementById('fb-page-select-area').style.display = 'none';
-      document.getElementById('fb-page-manual-area').style.display = 'block';
+      const select = document.getElementById('fb-page-select');
+      select.innerHTML = '<option value="">（取得できませんでした）</option>';
+      document.getElementById('fb-page-select-hint').style.display = 'block';
     }
 
     // Show account selection
