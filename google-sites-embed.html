@@ -391,13 +391,13 @@
   <div class="card">
     <!-- Image Upload -->
     <div class="field">
-      <label>画像ファイル（複数可）</label>
+      <label>画像・動画ファイル（複数可）</label>
       <div class="drop-zone" id="drop-zone"
            onclick="document.getElementById('file-input').click()">
-        <p>ここに画像をドラッグ＆ドロップ、またはクリックして選択</p>
-        <p class="sub">JPG, PNG対応 / 複数選択可</p>
+        <p>ここにファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+        <p class="sub">画像: JPG, PNG　動画: MP4, MOV 等 / 複数選択可</p>
       </div>
-      <input type="file" id="file-input" accept="image/*" multiple class="hidden">
+      <input type="file" id="file-input" accept="image/*,video/*" multiple class="hidden">
       <div id="image-count" class="text-sm mt-2" style="font-weight:500;display:none;"></div>
       <div id="image-grid" class="image-grid"></div>
     </div>
@@ -894,6 +894,29 @@ async function fetchAdSets() {
   btn.disabled = false;
 }
 
+// ===== Video Upload with polling =====
+async function uploadVideoAndWait(file, filename, onStatus) {
+  const formData = new FormData();
+  formData.append('source', file, filename);
+  formData.append('access_token', state.accessToken);
+
+  const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/advideos`, {
+    method: 'POST', body: formData,
+  });
+  const videoId = result.id;
+
+  // Poll until ready (up to 5 minutes)
+  for (let i = 0; i < 60; i++) {
+    await sleep(5000);
+    if (typeof onStatus === 'function') onStatus(`動画エンコード待機中... (${(i + 1) * 5}秒)`);
+    const statusData = await metaFetch(`${BASE_URL}/${videoId}?fields=status&access_token=${state.accessToken}`);
+    const vs = statusData.status?.video_status;
+    if (vs === 'ready') return videoId;
+    if (vs === 'error') throw new Error('動画のエンコードに失敗しました');
+  }
+  throw new Error('動画のエンコードがタイムアウトしました（5分超過）');
+}
+
 // ===== Image Upload =====
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
@@ -917,7 +940,7 @@ fileInput.addEventListener('change', (e) => {
 
 function handleFiles(fileList) {
   Array.from(fileList).forEach(f => {
-    if (f.type.startsWith('image/')) {
+    if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
       state.imageFiles.set(f.name, f);
     }
   });
@@ -940,17 +963,34 @@ function renderImagePreviews() {
     countEl.style.display = 'none';
     return;
   }
-  countEl.textContent = `${state.imageFiles.size}枚の画像が選択されています`;
+  const imageCount = Array.from(state.imageFiles.values()).filter(f => f.type.startsWith('image/')).length;
+  const videoCount = Array.from(state.imageFiles.values()).filter(f => f.type.startsWith('video/')).length;
+  const parts = [];
+  if (imageCount > 0) parts.push(`画像${imageCount}枚`);
+  if (videoCount > 0) parts.push(`動画${videoCount}件`);
+  countEl.textContent = `${parts.join('・')}が選択されています`;
   countEl.style.display = 'block';
 
   state.imageFiles.forEach((file, filename) => {
     const item = document.createElement('div');
     item.className = 'image-item';
 
-    const img = document.createElement('img');
-    img.src = URL.createObjectURL(file);
-    img.alt = filename;
-    img.onload = () => URL.revokeObjectURL(img.src);
+    let img;
+    if (file.type.startsWith('video/')) {
+      img = document.createElement('video');
+      img.src = URL.createObjectURL(file);
+      img.style.width = '100%';
+      img.style.height = '80px';
+      img.style.objectFit = 'cover';
+      img.style.borderRadius = '4px';
+      img.muted = true;
+      img.onloadeddata = () => URL.revokeObjectURL(img.src);
+    } else {
+      img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      img.alt = filename;
+      img.onload = () => URL.revokeObjectURL(img.src);
+    }
 
     const name = document.createElement('div');
     name.className = 'name';
@@ -976,9 +1016,16 @@ function updateSubmitState() {
   const valid = hasImages && body && headline && link;
 
   document.getElementById('submit-btn').disabled = !valid;
-  document.getElementById('submit-info').textContent = hasImages
-    ? `画像${state.imageFiles.size}枚 → 広告${state.imageFiles.size}件を入稿`
-    : '画像をアップロードしてください';
+  if (hasImages) {
+    const imgCnt = Array.from(state.imageFiles.values()).filter(f => f.type.startsWith('image/')).length;
+    const vidCnt = Array.from(state.imageFiles.values()).filter(f => f.type.startsWith('video/')).length;
+    const parts = [];
+    if (imgCnt > 0) parts.push(`画像${imgCnt}枚`);
+    if (vidCnt > 0) parts.push(`動画${vidCnt}件`);
+    document.getElementById('submit-info').textContent = `${parts.join('・')} → 広告${state.imageFiles.size}件を入稿`;
+  } else {
+    document.getElementById('submit-info').textContent = '画像または動画をアップロードしてください';
+  }
 }
 
 // Update validation on input
@@ -1222,37 +1269,44 @@ async function startSubmission() {
       return;
     }
 
-    // Step 3: Ads (image -> creative -> ad)
+    // Step 3: Ads (upload -> creative -> ad)
     for (const ad of ads) {
-      // Upload image
-      updateProgress(`画像アップロード: ${ad.imageFilename}`);
-      const imgDiv = addItem('image', ad.imageFilename, 'progress');
+      const file = state.imageFiles.get(ad.imageFilename);
+      const isVideo = file && file.type.startsWith('video/');
+      const uploadLabel = isVideo ? '動画' : '画像';
+
+      // Upload image or video
+      updateProgress(`${uploadLabel}アップロード: ${ad.imageFilename}`);
+      const imgDiv = addItem(isVideo ? 'image' : 'image', ad.imageFilename, 'progress');
       let imageHash = null;
+      let videoId = null;
 
       try {
         await sleep(RATE_LIMIT_MS);
-        const file = state.imageFiles.get(ad.imageFilename);
-        if (!file) throw new Error('画像ファイルが見つかりません');
+        if (!file) throw new Error('ファイルが見つかりません');
 
-        const formData = new FormData();
-        formData.append('filename', file, ad.imageFilename);
-        formData.append('access_token', state.accessToken);
-
-        const imgResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adimages`, {
-          method: 'POST', body: formData,
-        });
-        const images = imgResult.images;
-        const imgData = Object.values(images)[0];
-        imageHash = imgData.hash;
+        if (isVideo) {
+          videoId = await uploadVideoAndWait(file, ad.imageFilename, (msg) => {
+            updateProgress(msg);
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('filename', file, ad.imageFilename);
+          formData.append('access_token', state.accessToken);
+          const imgResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adimages`, {
+            method: 'POST', body: formData,
+          });
+          imageHash = Object.values(imgResult.images)[0].hash;
+        }
         updateItem(imgDiv, 'success');
         completed++;
       } catch (err) {
         updateItem(imgDiv, 'error', err.message);
-        failed += 3; // image + creative + ad
-        updateProgress(`画像アップロード失敗: ${ad.imageFilename}`);
+        failed += 3;
+        updateProgress(`${uploadLabel}アップロード失敗: ${ad.imageFilename}`);
         continue;
       }
-      updateProgress(`画像アップロード完了: ${ad.imageFilename}`);
+      updateProgress(`${uploadLabel}アップロード完了: ${ad.imageFilename}`);
 
       // Create creative
       updateProgress(`クリエイティブ作成: ${ad.name}`);
@@ -1261,24 +1315,42 @@ async function startSubmission() {
 
       try {
         await sleep(RATE_LIMIT_MS);
-        const objectStorySpec = {
-          page_id: state.selectedPageId,
-          link_data: {
-            image_hash: imageHash,
-            link: ad.linkUrl,
-            message: ad.bodyText,
-            name: ad.headline,
-            description: ad.description,
-            call_to_action: {
-              type: ad.ctaType,
-              value: { link: ad.linkUrl },
+        let objectStorySpec;
+        if (isVideo) {
+          objectStorySpec = {
+            page_id: state.selectedPageId,
+            video_data: {
+              video_id: videoId,
+              message: ad.bodyText,
+              title: ad.headline,
+              call_to_action: {
+                type: ad.ctaType,
+                value: { link: ad.linkUrl },
+              },
             },
-          },
-        };
+          };
+        } else {
+          objectStorySpec = {
+            page_id: state.selectedPageId,
+            link_data: {
+              image_hash: imageHash,
+              link: ad.linkUrl,
+              message: ad.bodyText,
+              name: ad.headline,
+              description: ad.description,
+              call_to_action: {
+                type: ad.ctaType,
+                value: { link: ad.linkUrl },
+              },
+            },
+          };
+        }
         const params = new URLSearchParams();
         params.append('name', `${ad.name} - Creative`);
         params.append('object_story_spec', JSON.stringify(objectStorySpec));
-        params.append('contextual_multi_ads', JSON.stringify({ enroll_status: 'OPT_OUT' }));
+        if (!isVideo) {
+          params.append('contextual_multi_ads', JSON.stringify({ enroll_status: 'OPT_OUT' }));
+        }
         params.append('access_token', state.accessToken);
 
         const crResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adcreatives`, {
@@ -1289,7 +1361,7 @@ async function startSubmission() {
         completed++;
       } catch (err) {
         updateItem(crDiv, 'error', err.message);
-        failed += 2; // creative + ad
+        failed += 2;
         updateProgress(`クリエイティブ作成失敗: ${ad.name}`);
         continue;
       }
