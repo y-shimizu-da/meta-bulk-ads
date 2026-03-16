@@ -420,8 +420,8 @@
 
     <!-- Headline -->
     <div class="field">
-      <label for="headline">見出し</label>
-      <input type="text" id="headline" placeholder="広告の見出しを入力...">
+      <label for="headline">見出し <span style="font-weight:400;color:var(--muted);font-size:0.8rem;">（任意）</span></label>
+      <input type="text" id="headline" placeholder="広告の見出しを入力（未入力の場合は見出しなし）">
     </div>
 
     <!-- Link URL -->
@@ -432,9 +432,14 @@
 
     <!-- URL Parameters -->
     <div class="field">
-      <label for="url-params">URLパラメータ</label>
-      <input type="text" id="url-params" value="utm_source=meta&utm_medium=paid" placeholder="utm_source=meta&utm_medium=paid">
-      <p class="hint">自動付与: ?utm_creative=[広告名（画像名）]&amp;上記パラメータ</p>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="url-params-toggle" checked onchange="toggleUrlParams()">
+        URLパラメータを設定する
+      </label>
+      <div id="url-params-area">
+        <input type="text" id="url-params" value="utm_source=meta&utm_medium=paid" placeholder="utm_source=meta&utm_medium=paid" style="margin-top:4px;">
+        <p class="hint">自動付与: ?utm_creative=[広告名（画像名）]&amp;上記パラメータ</p>
+      </div>
     </div>
   </div>
 
@@ -832,6 +837,11 @@ function showSection(id) {
   document.getElementById(id).classList.add('active');
 }
 
+function toggleUrlParams() {
+  const checked = document.getElementById('url-params-toggle').checked;
+  document.getElementById('url-params-area').style.display = checked ? 'block' : 'none';
+}
+
 function goToLogin() { showSection('login-section'); }
 function resetToBuilder() {
   state.imageFiles.clear();
@@ -841,6 +851,8 @@ function resetToBuilder() {
   document.getElementById('headline').value = '';
   document.getElementById('link-url').value = '';
   document.getElementById('url-params').value = 'utm_source=meta&utm_medium=paid';
+  document.getElementById('url-params-toggle').checked = true;
+  document.getElementById('url-params-area').style.display = 'block';
   document.getElementById('campaign-select').selectedIndex = 0;
   document.getElementById('campaign-fetch-status').style.display = 'none';
   document.getElementById('adset-select-area').style.display = 'none';
@@ -1088,7 +1100,7 @@ function updateSubmitState() {
   const body = document.getElementById('body-text').value.trim();
   const headline = document.getElementById('headline').value.trim();
   const link = document.getElementById('link-url').value.trim();
-  const valid = hasImages && body && headline && link;
+  const valid = hasImages && body && link;
 
   document.getElementById('submit-btn').disabled = !valid;
   if (hasImages) {
@@ -1113,7 +1125,8 @@ async function startSubmission() {
   const bodyText = document.getElementById('body-text').value.trim();
   const headline = document.getElementById('headline').value.trim();
   const linkUrl = document.getElementById('link-url').value.trim();
-  const urlParams = document.getElementById('url-params').value.trim();
+  const useUrlParams = document.getElementById('url-params-toggle').checked;
+  const urlParams = useUrlParams ? document.getElementById('url-params').value.trim() : '';
 
   showSection('progress-section');
 
@@ -1134,16 +1147,20 @@ async function startSubmission() {
   // Build ads list
   const ads = filenames.map(filename => {
     const adName = filename.replace(/\.[^.]+$/, '');
-    const separator = linkUrl.includes('?') ? '&' : '?';
-    const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
-    const extraParams = urlParams ? `&${urlParams}` : '';
+    let finalUrl = linkUrl;
+    if (useUrlParams) {
+      const separator = linkUrl.includes('?') ? '&' : '?';
+      const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
+      const extraParams = urlParams ? `&${urlParams}` : '';
+      finalUrl = `${linkUrl}${separator}${creativeParam}${extraParams}`;
+    }
     return {
       name: adName,
       imageFilename: filename,
       headline,
       bodyText,
       description: '',
-      linkUrl: `${linkUrl}${separator}${creativeParam}${extraParams}`,
+      linkUrl: finalUrl,
       ctaType: 'LEARN_MORE',
       status: 'PAUSED',
     };
@@ -1392,32 +1409,34 @@ async function startSubmission() {
         await sleep(RATE_LIMIT_MS);
         let objectStorySpec;
         if (isVideo) {
-          objectStorySpec = {
-            page_id: state.selectedPageId,
-            video_data: {
+          const videoData = {
               video_id: videoId,
               message: ad.bodyText,
-              title: ad.headline,
               call_to_action: {
                 type: ad.ctaType,
                 value: { link: ad.linkUrl },
               },
-            },
-          };
-        } else {
+            };
+          if (ad.headline) videoData.title = ad.headline;
           objectStorySpec = {
             page_id: state.selectedPageId,
-            link_data: {
+            video_data: videoData,
+          };
+        } else {
+          const linkData = {
               image_hash: imageHash,
               link: ad.linkUrl,
               message: ad.bodyText,
-              name: ad.headline,
               description: ad.description,
               call_to_action: {
                 type: ad.ctaType,
                 value: { link: ad.linkUrl },
               },
-            },
+            };
+          if (ad.headline) linkData.name = ad.headline;
+          objectStorySpec = {
+            page_id: state.selectedPageId,
+            link_data: linkData,
           };
         }
         const params = new URLSearchParams();
