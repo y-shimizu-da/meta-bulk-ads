@@ -1469,18 +1469,43 @@ async function startSubmission() {
         await sleep(RATE_LIMIT_MS);
         const creativeDof = {
           creative_features_spec: {
+            // 画像系
             image_enhancement: { enroll_status: 'OPT_OUT' },
             image_brightness_and_contrast: { enroll_status: 'OPT_OUT' },
-            text_optimizations: { enroll_status: 'OPT_OUT' },
-            inline_comment: { enroll_status: 'OPT_OUT' },
             image_templates: { enroll_status: 'OPT_OUT' },
             image_touchups: { enroll_status: 'OPT_OUT' },
             image_uncrop: { enroll_status: 'OPT_OUT' },
-            adapt_to_placement: { enroll_status: 'OPT_OUT' },
-            site_extensions: { enroll_status: 'OPT_OUT' },
+            image_auto_crop: { enroll_status: 'OPT_OUT' },
+            image_background_gen: { enroll_status: 'OPT_OUT' },
+            // 動画系
+            video_editing: { enroll_status: 'OPT_OUT' },
+            video_auto_crop: { enroll_status: 'OPT_OUT' },
+            video_filtering: { enroll_status: 'OPT_OUT' },
+            // テキスト・コピー系
+            text_optimizations: { enroll_status: 'OPT_OUT' },
+            text_generation: { enroll_status: 'OPT_OUT' },
             description_automation: { enroll_status: 'OPT_OUT' },
+            // CTA系
             generate_cta: { enroll_status: 'OPT_OUT' },
             enhance_cta: { enroll_status: 'OPT_OUT' },
+            // 配置・表示系
+            adapt_to_placement: { enroll_status: 'OPT_OUT' },
+            media_liquidity: { enroll_status: 'OPT_OUT' },
+            site_extensions: { enroll_status: 'OPT_OUT' },
+            // コメント・ソーシャル系
+            inline_comment: { enroll_status: 'OPT_OUT' },
+            // 音楽
+            media_enhancement: { enroll_status: 'OPT_OUT' },
+            // プロフィール強化
+            profile_card: { enroll_status: 'OPT_OUT' },
+            // 3Dアニメーション
+            three_d_animation: { enroll_status: 'OPT_OUT' },
+            // 商品タグ
+            product_tags: { enroll_status: 'OPT_OUT' },
+            // 標準エンハンスメント
+            standard_enhancements: { enroll_status: 'OPT_OUT' },
+            // カタログ最適化
+            catalog_automation: { enroll_status: 'OPT_OUT' },
           },
         };
 
