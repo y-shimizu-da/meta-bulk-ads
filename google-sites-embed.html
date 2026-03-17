@@ -302,6 +302,15 @@
         <p class="hint" style="margin-top:4px;">Facebookページ管理画面「基本データ」→「ページID」で確認できます。入力した場合はドロップダウンより優先されます。</p>
       </div>
     </div>
+    <!-- Instagram Account Selection -->
+    <div class="field">
+      <label for="ig-account-select">Instagramアカウント <span style="font-weight:400;color:var(--muted);font-size:0.8rem;">（任意）</span></label>
+      <select id="ig-account-select">
+        <option value="">使用しない</option>
+      </select>
+      <p class="hint">Facebookページに連携されたInstagramアカウントが表示されます</p>
+      <p id="ig-fetch-status" class="hint" style="display:none;"></p>
+    </div>
     <button class="btn btn-primary" onclick="handleFbSetup()" id="fb-go-btn">
       広告を入稿する
     </button>
@@ -371,6 +380,7 @@
   <div class="card">
     <div class="field">
       <label>キャンペーン選択</label>
+      <input type="text" id="campaign-filter" placeholder="キャンペーン名で検索..." oninput="filterSelect('campaign-filter','campaign-select')" style="display:none;margin-bottom:4px;">
       <div style="display:flex;gap:8px;align-items:start;">
         <select id="campaign-select" style="flex:1;">
           <option value="">新規作成（DA‐入稿用キャンペーン）</option>
@@ -385,6 +395,7 @@
     <!-- Ad Set Selection (shown when non-test campaign is selected) -->
     <div id="adset-select-area" class="field" style="display:none;">
       <label>広告セット選択</label>
+      <input type="text" id="adset-filter" placeholder="広告セット名で検索..." oninput="filterSelect('adset-filter','adset-select')" style="display:none;margin-bottom:4px;">
       <div style="display:flex;gap:8px;align-items:start;">
         <select id="adset-select" style="flex:1;">
           <option value="">新規作成（広告セット_日時）</option>
@@ -490,6 +501,7 @@ const state = {
   pages: [],
   selectedAdAccountId: '',
   selectedPageId: '',
+  selectedIgAccountId: '',
   imageFiles: new Map(), // filename -> File
   fbUserName: '',
   pageDebugLog: [],
@@ -507,6 +519,8 @@ const RATE_LIMIT_MS = 2000;
 const selectOptionsData = {
   'fb-ad-account-select': [],
   'fb-page-select': [],
+  'campaign-select': [],
+  'adset-select': [],
 };
 
 function filterSelect(filterId, selectId) {
@@ -748,12 +762,78 @@ function logoutFacebook() {
   document.getElementById('fb-login-error').style.display = 'none';
 }
 
+// Fetch Instagram accounts linked to the selected page
+async function fetchInstagramAccounts(pageId) {
+  const select = document.getElementById('ig-account-select');
+  const statusEl = document.getElementById('ig-fetch-status');
+  select.innerHTML = '<option value="">使用しない</option>';
+  if (!pageId) return;
+
+  statusEl.textContent = 'Instagramアカウントを取得中...';
+  statusEl.style.color = 'var(--muted)';
+  statusEl.style.display = 'block';
+
+  try {
+    // Try instagram_business_account first
+    const pageData = await metaFetch(
+      `${BASE_URL}/${pageId}?fields=instagram_business_account{id,name,username,profile_picture_url}&access_token=${state.accessToken}`
+    );
+    if (pageData.instagram_business_account) {
+      const ig = pageData.instagram_business_account;
+      const label = ig.username ? `@${ig.username}` : (ig.name || ig.id);
+      const opt = document.createElement('option');
+      opt.value = ig.id;
+      opt.textContent = label;
+      select.appendChild(opt);
+      select.value = ig.id;
+      statusEl.textContent = `Instagramアカウントを取得しました: ${label}`;
+      statusEl.style.color = 'var(--success)';
+      return;
+    }
+  } catch (e) { /* fallback below */ }
+
+  // Try connected IG accounts via ad account
+  try {
+    const adAccountId = document.getElementById('fb-ad-account-select').value;
+    if (adAccountId) {
+      const igAccounts = await metaFetchAll(
+        `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
+      );
+      if (igAccounts.length > 0) {
+        igAccounts.forEach(ig => {
+          const opt = document.createElement('option');
+          opt.value = ig.id;
+          opt.textContent = ig.username ? `@${ig.username}` : ig.id;
+          select.appendChild(opt);
+        });
+        statusEl.textContent = `${igAccounts.length}件のInstagramアカウントを取得しました`;
+        statusEl.style.color = 'var(--success)';
+        return;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  statusEl.textContent = '連携されたInstagramアカウントが見つかりませんでした';
+  statusEl.style.color = 'var(--muted)';
+}
+
+// Auto-fetch IG accounts when page selection changes
+document.getElementById('fb-page-select').addEventListener('change', function() {
+  if (this.value) fetchInstagramAccounts(this.value);
+});
+
+document.getElementById('fb-page-manual-id').addEventListener('blur', function() {
+  const id = this.value.trim();
+  if (id) fetchInstagramAccounts(id);
+});
+
 function handleFbSetup() {
   const adAccountId = document.getElementById('fb-ad-account-select').value;
   // ページはドロップダウンまたは手動入力から取得
   const pageFromSelect = document.getElementById('fb-page-select').value;
   const pageFromManual = (document.getElementById('fb-page-manual-id').value || '').trim();
   const pageId = pageFromManual || pageFromSelect; // 手動入力を優先
+  const igAccountId = document.getElementById('ig-account-select').value;
   const errEl = document.getElementById('fb-setup-error');
   errEl.style.display = 'none';
 
@@ -770,6 +850,7 @@ function handleFbSetup() {
 
   state.selectedAdAccountId = adAccountId;
   state.selectedPageId = pageId;
+  state.selectedIgAccountId = igAccountId || '';
   showSection('builder-section');
 }
 
@@ -914,15 +995,16 @@ async function fetchCampaigns() {
       `${BASE_URL}/${state.selectedAdAccountId}/campaigns?fields=id,name,objective,status&limit=100&access_token=${state.accessToken}`
     );
 
-    select.innerHTML = '<option value="">新規作成（DA‐入稿用キャンペーン）</option>';
+    const items = [{ value: '', text: '新規作成（DA‐入稿用キャンペーン）' }];
     campaigns.forEach(c => {
       campaignNames[c.id] = c.name;
-      const opt = document.createElement('option');
-      opt.value = c.id;
       const statusLabel = c.status === 'ACTIVE' ? '配信中' : c.status === 'PAUSED' ? '一時停止' : c.status;
-      opt.textContent = `${c.name}（${statusLabel}）`;
-      select.appendChild(opt);
+      items.push({ value: c.id, text: `${c.name}（${statusLabel}）` });
     });
+    populateSelect('campaign-select', items);
+
+    // Show filter if many campaigns
+    document.getElementById('campaign-filter').style.display = campaigns.length > 5 ? 'block' : 'none';
 
     statusEl.style.color = 'var(--success)';
     statusEl.textContent = `${campaigns.length}件のキャンペーンを取得しました`;
@@ -942,6 +1024,9 @@ document.getElementById('campaign-select').addEventListener('change', function()
   } else {
     adsetArea.style.display = 'block';
     document.getElementById('adset-select').innerHTML = '<option value="">新規作成（広告セット_日時）</option>';
+    document.getElementById('adset-filter').style.display = 'none';
+    document.getElementById('adset-filter').value = '';
+    selectOptionsData['adset-select'] = [];
     document.getElementById('adset-fetch-status').style.display = 'none';
   }
 });
@@ -964,14 +1049,16 @@ async function fetchAdSets() {
     const adsets = await metaFetchAll(
       `${BASE_URL}/${campaignId}/adsets?fields=id,name,status&limit=100&access_token=${state.accessToken}`
     );
-    select.innerHTML = '<option value="">新規作成（広告セット_日時）</option>';
+    const items = [{ value: '', text: '新規作成（広告セット_日時）' }];
     adsets.forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s.id;
       const statusLabel = s.status === 'ACTIVE' ? '配信中' : s.status === 'PAUSED' ? '一時停止' : s.status;
-      opt.textContent = `${s.name}（${statusLabel}）`;
-      select.appendChild(opt);
+      items.push({ value: s.id, text: `${s.name}（${statusLabel}）` });
     });
+    populateSelect('adset-select', items);
+
+    // Show filter if many ad sets
+    document.getElementById('adset-filter').style.display = adsets.length > 5 ? 'block' : 'none';
+
     statusEl.style.color = 'var(--success)';
     statusEl.textContent = `${adsets.length}件の広告セットを取得しました`;
   } catch (err) {
@@ -1437,6 +1524,9 @@ async function startSubmission() {
             page_id: state.selectedPageId,
             link_data: linkData,
           };
+        }
+        if (state.selectedIgAccountId) {
+          objectStorySpec.instagram_actor_id = state.selectedIgAccountId;
         }
         const params = new URLSearchParams();
         params.append('name', `${ad.name} - Creative`);
