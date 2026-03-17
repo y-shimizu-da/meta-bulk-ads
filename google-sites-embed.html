@@ -310,6 +310,10 @@
       </select>
       <p class="hint">Facebookページに連携されたInstagramアカウントが表示されます</p>
       <p id="ig-fetch-status" class="hint" style="display:none;"></p>
+      <div style="margin-top:6px;">
+        <input type="text" id="ig-manual-id" placeholder="InstagramアカウントIDを直接入力（任意）">
+        <p class="hint">ドロップダウンに表示されない場合はIDを入力。入力した場合はドロップダウンより優先されます。</p>
+      </div>
     </div>
     <button class="btn btn-primary" onclick="handleFbSetup()" id="fb-go-btn">
       広告を入稿する
@@ -502,6 +506,7 @@ const state = {
   selectedAdAccountId: '',
   selectedPageId: '',
   selectedIgAccountId: '',
+  pageAccessTokens: {}, // pageId -> page access token
   imageFiles: new Map(), // filename -> File
   fbUserName: '',
   pageDebugLog: [],
@@ -651,12 +656,15 @@ async function handleFbLoginSuccess(authResponse) {
     const pageMap = new Map(); // id -> name, for dedup
     const pageDebugLog = [];
 
-    // 1. Personal pages (me/accounts)
+    // 1. Personal pages (me/accounts) - also get access_token for IG lookup
     try {
       const personalPages = await metaFetchAll(
-        `${BASE_URL}/me/accounts?fields=id,name&limit=100&access_token=${state.accessToken}`
+        `${BASE_URL}/me/accounts?fields=id,name,access_token&limit=100&access_token=${state.accessToken}`
       );
-      personalPages.forEach(p => pageMap.set(p.id, p.name || p.id));
+      personalPages.forEach(p => {
+        pageMap.set(p.id, p.name || p.id);
+        if (p.access_token) state.pageAccessTokens[p.id] = p.access_token;
+      });
       pageDebugLog.push(`me/accounts: ${personalPages.length}件取得`);
     } catch (e) {
       pageDebugLog.push(`me/accounts: エラー (${e.message})`);
@@ -773,48 +781,91 @@ async function fetchInstagramAccounts(pageId) {
   statusEl.style.color = 'var(--muted)';
   statusEl.style.display = 'block';
 
-  try {
-    // Try instagram_business_account first
-    const pageData = await metaFetch(
-      `${BASE_URL}/${pageId}?fields=instagram_business_account{id,name,username,profile_picture_url}&access_token=${state.accessToken}`
-    );
-    if (pageData.instagram_business_account) {
-      const ig = pageData.instagram_business_account;
-      const label = ig.username ? `@${ig.username}` : (ig.name || ig.id);
+  const igMap = new Map(); // id -> label, for dedup
+  const debugLog = [];
+
+  // 1. Try with page access token (most reliable)
+  const pageToken = state.pageAccessTokens[pageId];
+  if (pageToken) {
+    try {
+      const pageData = await metaFetch(
+        `${BASE_URL}/${pageId}?fields=instagram_business_account{id,name,username}&access_token=${pageToken}`
+      );
+      if (pageData.instagram_business_account) {
+        const ig = pageData.instagram_business_account;
+        igMap.set(ig.id, ig.username ? `@${ig.username}` : (ig.name || ig.id));
+        debugLog.push(`ページトークン経由: 取得成功`);
+      } else {
+        debugLog.push(`ページトークン経由: IGアカウント未連携`);
+      }
+    } catch (e) {
+      debugLog.push(`ページトークン経由: エラー (${e.message})`);
+    }
+  }
+
+  // 2. Try with user access token
+  if (igMap.size === 0) {
+    try {
+      const pageData = await metaFetch(
+        `${BASE_URL}/${pageId}?fields=instagram_business_account{id,name,username}&access_token=${state.accessToken}`
+      );
+      if (pageData.instagram_business_account) {
+        const ig = pageData.instagram_business_account;
+        igMap.set(ig.id, ig.username ? `@${ig.username}` : (ig.name || ig.id));
+        debugLog.push(`ユーザートークン経由: 取得成功`);
+      } else {
+        debugLog.push(`ユーザートークン経由: IGアカウント未連携`);
+      }
+    } catch (e) {
+      debugLog.push(`ユーザートークン経由: エラー (${e.message})`);
+    }
+  }
+
+  // 3. Try via page's instagram_accounts edge
+  if (igMap.size === 0) {
+    const tokenForPage = pageToken || state.accessToken;
+    try {
+      const igAccounts = await metaFetchAll(
+        `${BASE_URL}/${pageId}/instagram_accounts?fields=id,username&access_token=${tokenForPage}`
+      );
+      igAccounts.forEach(ig => igMap.set(ig.id, ig.username ? `@${ig.username}` : ig.id));
+      debugLog.push(`ページ/instagram_accounts: ${igAccounts.length}件`);
+    } catch (e) {
+      debugLog.push(`ページ/instagram_accounts: エラー (${e.message})`);
+    }
+  }
+
+  // 4. Try connected IG accounts via ad account
+  if (igMap.size === 0) {
+    try {
+      const adAccountId = document.getElementById('fb-ad-account-select').value;
+      if (adAccountId) {
+        const igAccounts = await metaFetchAll(
+          `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
+        );
+        igAccounts.forEach(ig => igMap.set(ig.id, ig.username ? `@${ig.username}` : ig.id));
+        debugLog.push(`広告アカウント経由: ${igAccounts.length}件`);
+      }
+    } catch (e) {
+      debugLog.push(`広告アカウント経由: エラー (${e.message})`);
+    }
+  }
+
+  // Populate dropdown
+  if (igMap.size > 0) {
+    igMap.forEach((label, id) => {
       const opt = document.createElement('option');
-      opt.value = ig.id;
+      opt.value = id;
       opt.textContent = label;
       select.appendChild(opt);
-      select.value = ig.id;
-      statusEl.textContent = `Instagramアカウントを取得しました: ${label}`;
-      statusEl.style.color = 'var(--success)';
-      return;
-    }
-  } catch (e) { /* fallback below */ }
-
-  // Try connected IG accounts via ad account
-  try {
-    const adAccountId = document.getElementById('fb-ad-account-select').value;
-    if (adAccountId) {
-      const igAccounts = await metaFetchAll(
-        `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
-      );
-      if (igAccounts.length > 0) {
-        igAccounts.forEach(ig => {
-          const opt = document.createElement('option');
-          opt.value = ig.id;
-          opt.textContent = ig.username ? `@${ig.username}` : ig.id;
-          select.appendChild(opt);
-        });
-        statusEl.textContent = `${igAccounts.length}件のInstagramアカウントを取得しました`;
-        statusEl.style.color = 'var(--success)';
-        return;
-      }
-    }
-  } catch (e) { /* ignore */ }
-
-  statusEl.textContent = '連携されたInstagramアカウントが見つかりませんでした';
-  statusEl.style.color = 'var(--muted)';
+    });
+    select.value = igMap.keys().next().value;
+    statusEl.textContent = `${igMap.size}件のInstagramアカウントを取得しました`;
+    statusEl.style.color = 'var(--success)';
+  } else {
+    statusEl.innerHTML = '取得できませんでした。下のIDを直接入力してください<br><span style="font-size:0.7rem;color:var(--muted);">詳細: ' + debugLog.join(' / ') + '</span>';
+    statusEl.style.color = 'var(--warning)';
+  }
 }
 
 // Auto-fetch IG accounts when page selection changes
@@ -833,7 +884,8 @@ function handleFbSetup() {
   const pageFromSelect = document.getElementById('fb-page-select').value;
   const pageFromManual = (document.getElementById('fb-page-manual-id').value || '').trim();
   const pageId = pageFromManual || pageFromSelect; // 手動入力を優先
-  const igAccountId = document.getElementById('ig-account-select').value;
+  const igFromManual = (document.getElementById('ig-manual-id').value || '').trim();
+  const igAccountId = igFromManual || document.getElementById('ig-account-select').value;
   const errEl = document.getElementById('fb-setup-error');
   errEl.style.display = 'none';
 
