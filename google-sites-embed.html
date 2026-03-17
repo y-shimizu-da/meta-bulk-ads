@@ -438,7 +438,7 @@
       </label>
       <div id="url-params-area">
         <input type="text" id="url-params" value="utm_source=meta&utm_medium=paid" placeholder="utm_source=meta&utm_medium=paid" style="margin-top:4px;">
-        <p class="hint">自動付与: ?utm_creative=[広告名（画像名）]&amp;上記パラメータ</p>
+        <p class="hint">Meta広告の「URLパラメータ」欄に設定されます（utm_creative=[広告名] は自動付与）</p>
       </div>
     </div>
   </div>
@@ -1147,12 +1147,10 @@ async function startSubmission() {
   // Build ads list
   const ads = filenames.map(filename => {
     const adName = filename.replace(/\.[^.]+$/, '');
-    let finalUrl = linkUrl;
+    let urlTags = '';
     if (useUrlParams) {
-      const separator = linkUrl.includes('?') ? '&' : '?';
       const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
-      const extraParams = urlParams ? `&${urlParams}` : '';
-      finalUrl = `${linkUrl}${separator}${creativeParam}${extraParams}`;
+      urlTags = urlParams ? `${creativeParam}&${urlParams}` : creativeParam;
     }
     return {
       name: adName,
@@ -1160,7 +1158,8 @@ async function startSubmission() {
       headline,
       bodyText,
       description: '',
-      linkUrl: finalUrl,
+      linkUrl,
+      urlTags,
       ctaType: 'LEARN_MORE',
       status: 'PAUSED',
     };
@@ -1515,6 +1514,9 @@ async function startSubmission() {
         params.append('creative', JSON.stringify({ creative_id: creativeId }));
         params.append('status', 'PAUSED');
         params.append('creative_degrees_of_freedom_spec', JSON.stringify(creativeDof));
+        if (ad.urlTags) {
+          params.append('url_tags', ad.urlTags);
+        }
         params.append('access_token', state.accessToken);
 
         const adResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/ads`, {
