@@ -386,7 +386,7 @@
       <label>キャンペーン選択</label>
       <input type="text" id="campaign-filter" placeholder="キャンペーン名で検索..." oninput="filterSelect('campaign-filter','campaign-select')" style="display:none;margin-bottom:4px;">
       <div style="display:flex;gap:8px;align-items:start;">
-        <select id="campaign-select" style="flex:1;">
+        <select id="campaign-select" size="6" style="flex:1;">
           <option value="">新規作成（DA‐入稿用キャンペーン）</option>
         </select>
         <button class="btn btn-outline btn-sm" onclick="fetchCampaigns()" id="fetch-campaigns-btn">
@@ -401,7 +401,7 @@
       <label>広告セット選択</label>
       <input type="text" id="adset-filter" placeholder="広告セット名で検索..." oninput="filterSelect('adset-filter','adset-select')" style="display:none;margin-bottom:4px;">
       <div style="display:flex;gap:8px;align-items:start;">
-        <select id="adset-select" style="flex:1;">
+        <select id="adset-select" size="6" style="flex:1;">
           <option value="">新規作成（広告セット_日時）</option>
         </select>
         <button class="btn btn-outline btn-sm" onclick="fetchAdSets()" id="fetch-adsets-btn">
@@ -532,6 +532,7 @@ function filterSelect(filterId, selectId) {
   const query = document.getElementById(filterId).value.toLowerCase();
   const select = document.getElementById(selectId);
   const options = selectOptionsData[selectId] || [];
+  const prevValue = select.value;
 
   select.innerHTML = '';
   const filtered = query
@@ -551,6 +552,10 @@ function filterSelect(filterId, selectId) {
       opt.textContent = o.text;
       select.appendChild(opt);
     });
+  }
+  // Restore previous selection if still available
+  if (prevValue && filtered.some(o => o.value === prevValue)) {
+    select.value = prevValue;
   }
 }
 
@@ -1055,8 +1060,7 @@ async function fetchCampaigns() {
     });
     populateSelect('campaign-select', items);
 
-    // Show filter if many campaigns
-    document.getElementById('campaign-filter').style.display = campaigns.length > 5 ? 'block' : 'none';
+    document.getElementById('campaign-filter').style.display = campaigns.length > 0 ? 'block' : 'none';
 
     statusEl.style.color = 'var(--success)';
     statusEl.textContent = `${campaigns.length}件のキャンペーンを取得しました`;
@@ -1108,8 +1112,7 @@ async function fetchAdSets() {
     });
     populateSelect('adset-select', items);
 
-    // Show filter if many ad sets
-    document.getElementById('adset-filter').style.display = adsets.length > 5 ? 'block' : 'none';
+    document.getElementById('adset-filter').style.display = adsets.length > 0 ? 'block' : 'none';
 
     statusEl.style.color = 'var(--success)';
     statusEl.textContent = `${adsets.length}件の広告セットを取得しました`;
