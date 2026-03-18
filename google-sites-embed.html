@@ -414,8 +414,17 @@
   </div>
 
   <div class="card">
-    <!-- Image Upload -->
+    <!-- Placement Toggle -->
     <div class="field">
+      <label style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="placement-toggle" onchange="togglePlacementMode()">
+        配置ごとにクリエイティブを分ける
+      </label>
+      <p class="hint">フィード用とストーリーズ/リール用で別のクリエイティブを設定できます</p>
+    </div>
+
+    <!-- Common Upload (default) -->
+    <div id="common-upload-area" class="field">
       <label>画像・動画ファイル（複数可）</label>
       <div class="drop-zone" id="drop-zone"
            onclick="document.getElementById('file-input').click()">
@@ -425,6 +434,33 @@
       <input type="file" id="file-input" accept="image/*,video/*" multiple class="hidden">
       <div id="image-count" class="text-sm mt-2" style="font-weight:500;display:none;"></div>
       <div id="image-grid" class="image-grid"></div>
+    </div>
+
+    <!-- Placement-Specific Upload -->
+    <div id="placement-area" style="display:none;">
+      <div class="field">
+        <label>フィード用 <span style="font-weight:400;color:var(--muted);font-size:0.75rem;">（推奨: 1:1 / 1200×1200）</span></label>
+        <div class="drop-zone" id="drop-zone-feed"
+             onclick="document.getElementById('file-input-feed').click()" style="padding:20px;">
+          <p>フィード用ファイルをドラッグ＆ドロップ、またはクリック</p>
+          <p class="sub">画像: JPG, PNG　動画: MP4, MOV</p>
+        </div>
+        <input type="file" id="file-input-feed" accept="image/*,video/*" multiple class="hidden">
+        <div id="feed-count" class="text-sm mt-2" style="font-weight:500;display:none;"></div>
+        <div id="feed-grid" class="image-grid"></div>
+      </div>
+      <div class="field">
+        <label>ストーリーズ / リール用 <span style="font-weight:400;color:var(--muted);font-size:0.75rem;">（推奨: 9:16 / 1080×1920）</span></label>
+        <div class="drop-zone" id="drop-zone-story"
+             onclick="document.getElementById('file-input-story').click()" style="padding:20px;">
+          <p>ストーリーズ/リール用ファイルをドラッグ＆ドロップ、またはクリック</p>
+          <p class="sub">画像: JPG, PNG　動画: MP4, MOV</p>
+        </div>
+        <input type="file" id="file-input-story" accept="image/*,video/*" multiple class="hidden">
+        <div id="story-count" class="text-sm mt-2" style="font-weight:500;display:none;"></div>
+        <div id="story-grid" class="image-grid"></div>
+      </div>
+      <p id="placement-match-info" class="hint" style="display:none;"></p>
     </div>
 
     <!-- Body Text -->
@@ -507,7 +543,9 @@ const state = {
   selectedPageId: '',
   selectedIgAccountId: '',
   pageAccessTokens: {}, // pageId -> page access token
-  imageFiles: new Map(), // filename -> File
+  imageFiles: new Map(), // filename -> File (common mode)
+  feedFiles: new Map(),  // filename -> File (placement mode: feed)
+  storyFiles: new Map(), // filename -> File (placement mode: story/reels)
   fbUserName: '',
   pageDebugLog: [],
 };
@@ -983,8 +1021,18 @@ function toggleUrlParams() {
 function goToLogin() { showSection('login-section'); }
 function resetToBuilder() {
   state.imageFiles.clear();
+  state.feedFiles.clear();
+  state.storyFiles.clear();
   document.getElementById('image-grid').innerHTML = '';
   document.getElementById('image-count').style.display = 'none';
+  document.getElementById('feed-grid').innerHTML = '';
+  document.getElementById('feed-count').style.display = 'none';
+  document.getElementById('story-grid').innerHTML = '';
+  document.getElementById('story-count').style.display = 'none';
+  document.getElementById('placement-match-info').style.display = 'none';
+  document.getElementById('placement-toggle').checked = false;
+  document.getElementById('common-upload-area').style.display = 'block';
+  document.getElementById('placement-area').style.display = 'none';
   document.getElementById('body-text').value = '';
   document.getElementById('headline').value = '';
   document.getElementById('link-url').value = '';
@@ -1146,115 +1194,143 @@ async function uploadVideoAndWait(file, filename, onStatus) {
   throw new Error('動画のエンコードがタイムアウトしました（5分超過）');
 }
 
-// ===== Image Upload =====
-const dropZone = document.getElementById('drop-zone');
-const fileInput = document.getElementById('file-input');
+// ===== Placement Mode =====
+function togglePlacementMode() {
+  const checked = document.getElementById('placement-toggle').checked;
+  document.getElementById('common-upload-area').style.display = checked ? 'none' : 'block';
+  document.getElementById('placement-area').style.display = checked ? 'block' : 'none';
+  updateSubmitState();
+}
 
-dropZone.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  dropZone.classList.add('drag-over');
-});
-dropZone.addEventListener('dragleave', () => {
-  dropZone.classList.remove('drag-over');
-});
-dropZone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dropZone.classList.remove('drag-over');
-  handleFiles(e.dataTransfer.files);
-});
-fileInput.addEventListener('change', (e) => {
-  handleFiles(e.target.files);
-  e.target.value = '';
-});
+function isPlacementMode() {
+  return document.getElementById('placement-toggle').checked;
+}
 
-function handleFiles(fileList) {
-  Array.from(fileList).forEach(f => {
-    if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
-      state.imageFiles.set(f.name, f);
-    }
+// ===== Generic File Handling =====
+function setupDropZone(zoneId, inputId, fileMap, gridId, countId) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => { zone.classList.remove('drag-over'); });
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    addFilesToMap(e.dataTransfer.files, fileMap, gridId, countId);
   });
-  renderImagePreviews();
+  input.addEventListener('change', (e) => {
+    addFilesToMap(e.target.files, fileMap, gridId, countId);
+    e.target.value = '';
+  });
+}
+
+function addFilesToMap(fileList, fileMap, gridId, countId) {
+  Array.from(fileList).forEach(f => {
+    if (f.type.startsWith('image/') || f.type.startsWith('video/')) fileMap.set(f.name, f);
+  });
+  renderFileGrid(fileMap, gridId, countId);
+  updatePlacementMatchInfo();
   updateSubmitState();
 }
 
-function removeImage(filename) {
-  state.imageFiles.delete(filename);
-  renderImagePreviews();
+function removeFileFrom(filename, fileMap, gridId, countId) {
+  fileMap.delete(filename);
+  renderFileGrid(fileMap, gridId, countId);
+  updatePlacementMatchInfo();
   updateSubmitState();
 }
 
-function renderImagePreviews() {
-  const grid = document.getElementById('image-grid');
-  const countEl = document.getElementById('image-count');
+function renderFileGrid(fileMap, gridId, countId) {
+  const grid = document.getElementById(gridId);
+  const countEl = document.getElementById(countId);
   grid.innerHTML = '';
-
-  if (state.imageFiles.size === 0) {
-    countEl.style.display = 'none';
-    return;
-  }
-  const imageCount = Array.from(state.imageFiles.values()).filter(f => f.type.startsWith('image/')).length;
-  const videoCount = Array.from(state.imageFiles.values()).filter(f => f.type.startsWith('video/')).length;
+  if (fileMap.size === 0) { countEl.style.display = 'none'; return; }
+  const imgCnt = Array.from(fileMap.values()).filter(f => f.type.startsWith('image/')).length;
+  const vidCnt = Array.from(fileMap.values()).filter(f => f.type.startsWith('video/')).length;
   const parts = [];
-  if (imageCount > 0) parts.push(`画像${imageCount}枚`);
-  if (videoCount > 0) parts.push(`動画${videoCount}件`);
+  if (imgCnt > 0) parts.push(`画像${imgCnt}枚`);
+  if (vidCnt > 0) parts.push(`動画${vidCnt}件`);
   countEl.textContent = `${parts.join('・')}が選択されています`;
   countEl.style.display = 'block';
 
-  state.imageFiles.forEach((file, filename) => {
+  fileMap.forEach((file, filename) => {
     const item = document.createElement('div');
     item.className = 'image-item';
-
-    let img;
+    let el;
     if (file.type.startsWith('video/')) {
-      img = document.createElement('video');
-      img.src = URL.createObjectURL(file);
-      img.style.width = '100%';
-      img.style.height = '80px';
-      img.style.objectFit = 'cover';
-      img.style.borderRadius = '4px';
-      img.muted = true;
-      img.onloadeddata = () => URL.revokeObjectURL(img.src);
+      el = document.createElement('video');
+      el.src = URL.createObjectURL(file);
+      el.style.cssText = 'width:100%;height:80px;object-fit:cover;border-radius:4px;';
+      el.muted = true;
+      el.onloadeddata = () => URL.revokeObjectURL(el.src);
     } else {
-      img = document.createElement('img');
-      img.src = URL.createObjectURL(file);
-      img.alt = filename;
-      img.onload = () => URL.revokeObjectURL(img.src);
+      el = document.createElement('img');
+      el.src = URL.createObjectURL(file);
+      el.alt = filename;
+      el.onload = () => URL.revokeObjectURL(el.src);
     }
-
-    const name = document.createElement('div');
-    name.className = 'name';
-    name.textContent = filename;
-
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'name';
+    nameDiv.textContent = filename;
     const removeBtn = document.createElement('button');
     removeBtn.className = 'remove-btn';
     removeBtn.textContent = '\u00d7';
-    removeBtn.onclick = (e) => { e.stopPropagation(); removeImage(filename); };
-
-    item.appendChild(img);
-    item.appendChild(name);
+    removeBtn.onclick = (e) => { e.stopPropagation(); removeFileFrom(filename, fileMap, gridId, countId); };
+    item.appendChild(el);
+    item.appendChild(nameDiv);
     item.appendChild(removeBtn);
     grid.appendChild(item);
   });
 }
 
-function updateSubmitState() {
-  const hasImages = state.imageFiles.size > 0;
-  const body = document.getElementById('body-text').value.trim();
-  const headline = document.getElementById('headline').value.trim();
-  const link = document.getElementById('link-url').value.trim();
-  const valid = hasImages && body && link;
+// Setup all drop zones
+setupDropZone('drop-zone', 'file-input', state.imageFiles, 'image-grid', 'image-count');
+setupDropZone('drop-zone-feed', 'file-input-feed', state.feedFiles, 'feed-grid', 'feed-count');
+setupDropZone('drop-zone-story', 'file-input-story', state.storyFiles, 'story-grid', 'story-count');
 
-  document.getElementById('submit-btn').disabled = !valid;
-  if (hasImages) {
+function updatePlacementMatchInfo() {
+  const infoEl = document.getElementById('placement-match-info');
+  if (!isPlacementMode()) { infoEl.style.display = 'none'; return; }
+  const feedNames = new Set(state.feedFiles.keys());
+  const storyNames = new Set(state.storyFiles.keys());
+  const matched = [...feedNames].filter(n => storyNames.has(n)).length;
+  const feedOnly = state.feedFiles.size - matched;
+  const storyOnly = state.storyFiles.size - matched;
+  const totalAds = matched + feedOnly + storyOnly;
+  if (totalAds === 0) { infoEl.style.display = 'none'; return; }
+  const parts = [];
+  if (matched > 0) parts.push(`フィード＋ストーリーズ: ${matched}件`);
+  if (feedOnly > 0) parts.push(`フィードのみ: ${feedOnly}件`);
+  if (storyOnly > 0) parts.push(`ストーリーズのみ: ${storyOnly}件`);
+  infoEl.textContent = `広告${totalAds}件を作成予定（${parts.join('、')}）` +
+    (matched > 0 ? '　※同じファイル名のものが配置別にペアリングされます' : '');
+  infoEl.style.display = 'block';
+}
+
+function updateSubmitState() {
+  const body = document.getElementById('body-text').value.trim();
+  const link = document.getElementById('link-url').value.trim();
+  let hasFiles, totalAds, infoText;
+
+  if (isPlacementMode()) {
+    hasFiles = state.feedFiles.size > 0 || state.storyFiles.size > 0;
+    const feedNames = new Set(state.feedFiles.keys());
+    const storyNames = new Set(state.storyFiles.keys());
+    const allNames = new Set([...feedNames, ...storyNames]);
+    totalAds = allNames.size;
+    infoText = `配置別 → 広告${totalAds}件を入稿`;
+  } else {
+    hasFiles = state.imageFiles.size > 0;
+    totalAds = state.imageFiles.size;
     const imgCnt = Array.from(state.imageFiles.values()).filter(f => f.type.startsWith('image/')).length;
     const vidCnt = Array.from(state.imageFiles.values()).filter(f => f.type.startsWith('video/')).length;
     const parts = [];
     if (imgCnt > 0) parts.push(`画像${imgCnt}枚`);
     if (vidCnt > 0) parts.push(`動画${vidCnt}件`);
-    document.getElementById('submit-info').textContent = `${parts.join('・')} → 広告${state.imageFiles.size}件を入稿`;
-  } else {
-    document.getElementById('submit-info').textContent = '画像または動画をアップロードしてください';
+    infoText = `${parts.join('・')} → 広告${totalAds}件を入稿`;
   }
+
+  const valid = hasFiles && body && link;
+  document.getElementById('submit-btn').disabled = !valid;
+  document.getElementById('submit-info').textContent = hasFiles ? infoText : '画像または動画をアップロードしてください';
 }
 
 // Update validation on input
@@ -1283,32 +1359,55 @@ async function startSubmission() {
   const now = new Date();
   const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
 
-  const filenames = Array.from(state.imageFiles.keys());
+  const placementMode = isPlacementMode();
   const campaignName = 'DA\u2010\u5165\u7a3F\u7528\u30AD\u30E3\u30F3\u30DA\u30FC\u30F3';
 
   // Build ads list
-  const ads = filenames.map(filename => {
-    const adName = filename.replace(/\.[^.]+$/, '');
-    let urlTags = '';
-    if (useUrlParams) {
-      const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
-      urlTags = urlParams ? `${creativeParam}&${urlParams}` : creativeParam;
-    }
-    return {
-      name: adName,
-      imageFilename: filename,
-      headline,
-      bodyText,
-      description: '',
-      linkUrl,
-      urlTags,
-      ctaType: 'LEARN_MORE',
-      status: 'PAUSED',
-    };
-  });
+  let ads;
+  if (placementMode) {
+    const feedNames = new Set(state.feedFiles.keys());
+    const storyNames = new Set(state.storyFiles.keys());
+    const allNames = [...new Set([...feedNames, ...storyNames])];
+    ads = allNames.map(filename => {
+      const adName = filename.replace(/\.[^.]+$/, '');
+      let urlTags = '';
+      if (useUrlParams) {
+        const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
+        urlTags = urlParams ? `${creativeParam}&${urlParams}` : creativeParam;
+      }
+      return {
+        name: adName,
+        feedFilename: feedNames.has(filename) ? filename : null,
+        storyFilename: storyNames.has(filename) ? filename : null,
+        headline, bodyText, description: '', linkUrl, urlTags,
+        ctaType: 'LEARN_MORE', status: 'PAUSED',
+      };
+    });
+  } else {
+    ads = Array.from(state.imageFiles.keys()).map(filename => {
+      const adName = filename.replace(/\.[^.]+$/, '');
+      let urlTags = '';
+      if (useUrlParams) {
+        const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
+        urlTags = urlParams ? `${creativeParam}&${urlParams}` : creativeParam;
+      }
+      return {
+        name: adName, imageFilename: filename,
+        headline, bodyText, description: '', linkUrl, urlTags,
+        ctaType: 'LEARN_MORE', status: 'PAUSED',
+      };
+    });
+  }
 
-  // Count total: 1 campaign + 1 ad set + (image + creative + ad) * N
-  const totalItems = 1 + 1 + (ads.length * 3);
+  // Count total steps: campaign + ad set + per-ad steps
+  // Placement mode: each ad can have 1-2 uploads + 1 creative + 1 ad
+  let perAdSteps;
+  if (placementMode) {
+    perAdSteps = ads.reduce((sum, ad) => sum + (ad.feedFilename ? 1 : 0) + (ad.storyFilename ? 1 : 0) + 2, 0);
+  } else {
+    perAdSteps = ads.length * 3; // upload + creative + ad
+  }
+  const totalItems = 1 + 1 + perAdSteps;
   let completed = 0;
   let failed = 0;
 
@@ -1494,100 +1593,214 @@ async function startSubmission() {
     }
 
     if (!adSetId) {
-      // Cannot continue without ad set
-      failed += ads.length * 3;
+      failed += perAdSteps;
       updateProgress('完了');
       document.getElementById('progress-done').style.display = 'block';
       document.getElementById('done-message').textContent = `完了: 成功 ${completed}件 / 失敗 ${failed}件`;
       return;
     }
 
-    // Step 3: Ads (upload -> creative -> ad)
-    for (const ad of ads) {
-      const file = state.imageFiles.get(ad.imageFilename);
-      const isVideo = file && file.type.startsWith('video/');
-      const uploadLabel = isVideo ? '動画' : '画像';
+    // Shared Advantage+ OPT_OUT spec
+    const creativeDof = {
+      creative_features_spec: {
+        image_enhancement: { enroll_status: 'OPT_OUT' },
+        image_brightness_and_contrast: { enroll_status: 'OPT_OUT' },
+        image_templates: { enroll_status: 'OPT_OUT' },
+        image_touchups: { enroll_status: 'OPT_OUT' },
+        image_uncrop: { enroll_status: 'OPT_OUT' },
+        image_auto_crop: { enroll_status: 'OPT_OUT' },
+        image_background_gen: { enroll_status: 'OPT_OUT' },
+        video_editing: { enroll_status: 'OPT_OUT' },
+        video_auto_crop: { enroll_status: 'OPT_OUT' },
+        video_filtering: { enroll_status: 'OPT_OUT' },
+        text_optimizations: { enroll_status: 'OPT_OUT' },
+        text_generation: { enroll_status: 'OPT_OUT' },
+        description_automation: { enroll_status: 'OPT_OUT' },
+        generate_cta: { enroll_status: 'OPT_OUT' },
+        enhance_cta: { enroll_status: 'OPT_OUT' },
+        adapt_to_placement: { enroll_status: 'OPT_OUT' },
+        media_liquidity: { enroll_status: 'OPT_OUT' },
+        site_extensions: { enroll_status: 'OPT_OUT' },
+        inline_comment: { enroll_status: 'OPT_OUT' },
+        media_enhancement: { enroll_status: 'OPT_OUT' },
+        profile_card: { enroll_status: 'OPT_OUT' },
+        three_d_animation: { enroll_status: 'OPT_OUT' },
+        product_tags: { enroll_status: 'OPT_OUT' },
+        standard_enhancements: { enroll_status: 'OPT_OUT' },
+        catalog_automation: { enroll_status: 'OPT_OUT' },
+      },
+    };
 
-      // Upload image or video
-      updateProgress(`${uploadLabel}アップロード: ${ad.imageFilename}`);
-      const imgDiv = addItem(isVideo ? 'image' : 'image', ad.imageFilename, 'progress');
-      let imageHash = null;
-      let videoId = null;
-
-      try {
-        await sleep(RATE_LIMIT_MS);
-        if (!file) throw new Error('ファイルが見つかりません');
-
-        if (isVideo) {
-          videoId = await uploadVideoAndWait(file, ad.imageFilename, (msg) => {
-            updateProgress(msg);
-          });
-        } else {
-          const formData = new FormData();
-          formData.append('filename', file, ad.imageFilename);
-          formData.append('access_token', state.accessToken);
-          const imgResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adimages`, {
-            method: 'POST', body: formData,
-          });
-          imageHash = Object.values(imgResult.images)[0].hash;
-        }
-        updateItem(imgDiv, 'success');
-        completed++;
-      } catch (err) {
-        updateItem(imgDiv, 'error', err.message);
-        failed += 3;
-        updateProgress(`${uploadLabel}アップロード失敗: ${ad.imageFilename}`);
-        continue;
+    // Helper: upload a single file (image or video), returns { hash, videoId, isVideo }
+    async function uploadFile(file, filename) {
+      const isVideo = file.type.startsWith('video/');
+      if (isVideo) {
+        const vid = await uploadVideoAndWait(file, filename, (msg) => updateProgress(msg));
+        return { videoId: vid, isVideo: true };
+      } else {
+        const formData = new FormData();
+        formData.append('filename', file, filename);
+        formData.append('access_token', state.accessToken);
+        const imgResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adimages`, {
+          method: 'POST', body: formData,
+        });
+        return { hash: Object.values(imgResult.images)[0].hash, isVideo: false };
       }
-      updateProgress(`${uploadLabel}アップロード完了: ${ad.imageFilename}`);
+    }
 
-      // Create creative
+    // Helper: create standard creative (single placement or common mode)
+    function buildObjectStorySpec(ad, uploadResult) {
+      let objectStorySpec;
+      if (uploadResult.isVideo) {
+        const videoData = {
+          video_id: uploadResult.videoId, message: ad.bodyText,
+          call_to_action: { type: ad.ctaType, value: { link: ad.linkUrl } },
+        };
+        if (ad.headline) videoData.title = ad.headline;
+        objectStorySpec = { page_id: state.selectedPageId, video_data: videoData };
+      } else {
+        const linkData = {
+          image_hash: uploadResult.hash, link: ad.linkUrl,
+          message: ad.bodyText, description: ad.description,
+          call_to_action: { type: ad.ctaType, value: { link: ad.linkUrl } },
+        };
+        if (ad.headline) linkData.name = ad.headline;
+        objectStorySpec = { page_id: state.selectedPageId, link_data: linkData };
+      }
+      if (state.selectedIgAccountId) objectStorySpec.instagram_actor_id = state.selectedIgAccountId;
+      return objectStorySpec;
+    }
+
+    // Step 3: Ads
+    for (const ad of ads) {
+      // --- Upload files ---
+      let feedUpload = null, storyUpload = null, commonUpload = null;
+
+      if (placementMode) {
+        // Placement mode: upload feed and/or story files
+        if (ad.feedFilename) {
+          const file = state.feedFiles.get(ad.feedFilename);
+          const label = file.type.startsWith('video/') ? '動画' : '画像';
+          updateProgress(`フィード${label}アップロード: ${ad.feedFilename}`);
+          const div = addItem('image', `[フィード] ${ad.feedFilename}`, 'progress');
+          try {
+            await sleep(RATE_LIMIT_MS);
+            feedUpload = await uploadFile(file, ad.feedFilename);
+            updateItem(div, 'success'); completed++;
+          } catch (err) {
+            updateItem(div, 'error', err.message);
+            const remainSteps = (ad.storyFilename ? 1 : 0) + 2;
+            failed += 1 + remainSteps;
+            continue;
+          }
+        }
+        if (ad.storyFilename) {
+          const file = state.storyFiles.get(ad.storyFilename);
+          const label = file.type.startsWith('video/') ? '動画' : '画像';
+          updateProgress(`ストーリーズ${label}アップロード: ${ad.storyFilename}`);
+          const div = addItem('image', `[ストーリーズ] ${ad.storyFilename}`, 'progress');
+          try {
+            await sleep(RATE_LIMIT_MS);
+            storyUpload = await uploadFile(file, ad.storyFilename);
+            updateItem(div, 'success'); completed++;
+          } catch (err) {
+            updateItem(div, 'error', err.message);
+            failed += 3; // creative + ad + this
+            continue;
+          }
+        }
+      } else {
+        // Common mode: single file upload
+        const file = state.imageFiles.get(ad.imageFilename);
+        const isVideo = file && file.type.startsWith('video/');
+        const label = isVideo ? '動画' : '画像';
+        updateProgress(`${label}アップロード: ${ad.imageFilename}`);
+        const div = addItem('image', ad.imageFilename, 'progress');
+        try {
+          await sleep(RATE_LIMIT_MS);
+          if (!file) throw new Error('ファイルが見つかりません');
+          commonUpload = await uploadFile(file, ad.imageFilename);
+          updateItem(div, 'success'); completed++;
+        } catch (err) {
+          updateItem(div, 'error', err.message);
+          failed += 3;
+          continue;
+        }
+      }
+
+      // --- Create Creative ---
       updateProgress(`クリエイティブ作成: ${ad.name}`);
       const crDiv = addItem('creative', `${ad.name} クリエイティブ`, 'progress');
       let creativeId = null;
 
       try {
         await sleep(RATE_LIMIT_MS);
-        let objectStorySpec;
-        if (isVideo) {
-          const videoData = {
-              video_id: videoId,
-              message: ad.bodyText,
-              call_to_action: {
-                type: ad.ctaType,
-                value: { link: ad.linkUrl },
-              },
-            };
-          if (ad.headline) videoData.title = ad.headline;
-          objectStorySpec = {
-            page_id: state.selectedPageId,
-            video_data: videoData,
-          };
-        } else {
-          const linkData = {
-              image_hash: imageHash,
-              link: ad.linkUrl,
-              message: ad.bodyText,
-              description: ad.description,
-              call_to_action: {
-                type: ad.ctaType,
-                value: { link: ad.linkUrl },
-              },
-            };
-          if (ad.headline) linkData.name = ad.headline;
-          objectStorySpec = {
-            page_id: state.selectedPageId,
-            link_data: linkData,
-          };
-        }
-        if (state.selectedIgAccountId) {
-          objectStorySpec.instagram_actor_id = state.selectedIgAccountId;
-        }
         const params = new URLSearchParams();
         params.append('name', `${ad.name} - Creative`);
-        params.append('object_story_spec', JSON.stringify(objectStorySpec));
-        if (!isVideo) {
-          params.append('contextual_multi_ads', JSON.stringify({ enroll_status: 'OPT_OUT' }));
+
+        if (placementMode && feedUpload && storyUpload) {
+          // Both placements: use asset_feed_spec with asset_customization_rules
+          const objectStorySpec = { page_id: state.selectedPageId };
+          if (state.selectedIgAccountId) objectStorySpec.instagram_actor_id = state.selectedIgAccountId;
+          params.append('object_story_spec', JSON.stringify(objectStorySpec));
+
+          const assetFeedSpec = {
+            ad_formats: ['SINGLE_IMAGE'],
+            bodies: [{ text: ad.bodyText }],
+            link_urls: [{ website_url: ad.linkUrl }],
+            call_to_actions: [{ type: ad.ctaType, value: { link: ad.linkUrl } }],
+            asset_customization_rules: [],
+          };
+          if (ad.headline) assetFeedSpec.titles = [{ text: ad.headline }];
+          if (ad.description) assetFeedSpec.descriptions = [{ text: ad.description }];
+
+          // Feed asset
+          const feedRule = {
+            customization_spec: {
+              publisher_platforms: ['facebook', 'instagram'],
+              facebook_positions: ['feed', 'marketplace', 'video_feeds', 'search', 'right_hand_column'],
+              instagram_positions: ['stream', 'explore', 'explore_home', 'profile_feed', 'ig_search'],
+            },
+          };
+          if (feedUpload.isVideo) {
+            assetFeedSpec.videos = assetFeedSpec.videos || [];
+            assetFeedSpec.videos.push({ video_id: feedUpload.videoId, adlabels: [{ name: 'feed' }] });
+            feedRule.video_label = { name: 'feed' };
+          } else {
+            assetFeedSpec.images = assetFeedSpec.images || [];
+            assetFeedSpec.images.push({ hash: feedUpload.hash, adlabels: [{ name: 'feed' }] });
+            feedRule.image_label = { name: 'feed' };
+          }
+          assetFeedSpec.asset_customization_rules.push(feedRule);
+
+          // Story/Reels asset
+          const storyRule = {
+            customization_spec: {
+              publisher_platforms: ['facebook', 'instagram'],
+              facebook_positions: ['story', 'reels'],
+              instagram_positions: ['story', 'reels'],
+            },
+          };
+          if (storyUpload.isVideo) {
+            assetFeedSpec.videos = assetFeedSpec.videos || [];
+            assetFeedSpec.videos.push({ video_id: storyUpload.videoId, adlabels: [{ name: 'story' }] });
+            storyRule.video_label = { name: 'story' };
+          } else {
+            assetFeedSpec.images = assetFeedSpec.images || [];
+            assetFeedSpec.images.push({ hash: storyUpload.hash, adlabels: [{ name: 'story' }] });
+            storyRule.image_label = { name: 'story' };
+          }
+          assetFeedSpec.asset_customization_rules.push(storyRule);
+
+          params.append('asset_feed_spec', JSON.stringify(assetFeedSpec));
+        } else {
+          // Single placement or common mode: use object_story_spec
+          const upload = commonUpload || feedUpload || storyUpload;
+          const spec = buildObjectStorySpec(ad, upload);
+          params.append('object_story_spec', JSON.stringify(spec));
+          if (!upload.isVideo) {
+            params.append('contextual_multi_ads', JSON.stringify({ enroll_status: 'OPT_OUT' }));
+          }
         }
         params.append('access_token', state.accessToken);
 
@@ -1595,80 +1808,33 @@ async function startSubmission() {
           method: 'POST', body: params,
         });
         creativeId = crResult.id;
-        updateItem(crDiv, 'success');
-        completed++;
+        updateItem(crDiv, 'success'); completed++;
       } catch (err) {
         updateItem(crDiv, 'error', err.message);
         failed += 2;
         updateProgress(`クリエイティブ作成失敗: ${ad.name}`);
         continue;
       }
-      updateProgress(`クリエイティブ作成完了: ${ad.name}`);
 
-      // Create ad
+      // --- Create Ad ---
       updateProgress(`広告作成: ${ad.name}`);
       const adDiv = addItem('ad', ad.name, 'progress');
 
       try {
         await sleep(RATE_LIMIT_MS);
-        const creativeDof = {
-          creative_features_spec: {
-            // 画像系
-            image_enhancement: { enroll_status: 'OPT_OUT' },
-            image_brightness_and_contrast: { enroll_status: 'OPT_OUT' },
-            image_templates: { enroll_status: 'OPT_OUT' },
-            image_touchups: { enroll_status: 'OPT_OUT' },
-            image_uncrop: { enroll_status: 'OPT_OUT' },
-            image_auto_crop: { enroll_status: 'OPT_OUT' },
-            image_background_gen: { enroll_status: 'OPT_OUT' },
-            // 動画系
-            video_editing: { enroll_status: 'OPT_OUT' },
-            video_auto_crop: { enroll_status: 'OPT_OUT' },
-            video_filtering: { enroll_status: 'OPT_OUT' },
-            // テキスト・コピー系
-            text_optimizations: { enroll_status: 'OPT_OUT' },
-            text_generation: { enroll_status: 'OPT_OUT' },
-            description_automation: { enroll_status: 'OPT_OUT' },
-            // CTA系
-            generate_cta: { enroll_status: 'OPT_OUT' },
-            enhance_cta: { enroll_status: 'OPT_OUT' },
-            // 配置・表示系
-            adapt_to_placement: { enroll_status: 'OPT_OUT' },
-            media_liquidity: { enroll_status: 'OPT_OUT' },
-            site_extensions: { enroll_status: 'OPT_OUT' },
-            // コメント・ソーシャル系
-            inline_comment: { enroll_status: 'OPT_OUT' },
-            // 音楽
-            media_enhancement: { enroll_status: 'OPT_OUT' },
-            // プロフィール強化
-            profile_card: { enroll_status: 'OPT_OUT' },
-            // 3Dアニメーション
-            three_d_animation: { enroll_status: 'OPT_OUT' },
-            // 商品タグ
-            product_tags: { enroll_status: 'OPT_OUT' },
-            // 標準エンハンスメント
-            standard_enhancements: { enroll_status: 'OPT_OUT' },
-            // カタログ最適化
-            catalog_automation: { enroll_status: 'OPT_OUT' },
-          },
-        };
-
         const params = new URLSearchParams();
         params.append('name', ad.name);
         params.append('adset_id', adSetId);
         params.append('creative', JSON.stringify({ creative_id: creativeId }));
         params.append('status', 'PAUSED');
         params.append('creative_degrees_of_freedom_spec', JSON.stringify(creativeDof));
-        if (ad.urlTags) {
-          params.append('url_tags', ad.urlTags);
-        }
+        if (ad.urlTags) params.append('url_tags', ad.urlTags);
         params.append('access_token', state.accessToken);
 
-        const adResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/ads`, {
+        await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/ads`, {
           method: 'POST', body: params,
         });
-        updateItem(adDiv, 'success');
-        completed++;
+        updateItem(adDiv, 'success'); completed++;
       } catch (err) {
         updateItem(adDiv, 'error', err.message);
         failed++;
