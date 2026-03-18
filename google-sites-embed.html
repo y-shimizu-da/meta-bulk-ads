@@ -489,7 +489,11 @@
       </label>
       <div id="url-params-area">
         <input type="text" id="url-params" value="utm_source=meta&utm_medium=paid" placeholder="utm_source=meta&utm_medium=paid" style="margin-top:4px;">
-        <p class="hint">Meta広告の「URLパラメータ」欄に設定されます（utm_creative=[広告名] は自動付与）</p>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:0.8rem;font-weight:400;">
+          <input type="checkbox" id="utm-creative-toggle" checked>
+          utm_creative=[広告名] を自動付与する
+        </label>
+        <p class="hint">Meta広告の「URLパラメータ」欄に設定されます</p>
       </div>
     </div>
   </div>
@@ -1345,6 +1349,7 @@ async function startSubmission() {
   const linkUrl = document.getElementById('link-url').value.trim();
   const useUrlParams = document.getElementById('url-params-toggle').checked;
   const urlParams = useUrlParams ? document.getElementById('url-params').value.trim() : '';
+  const useCreativeParam = useUrlParams && document.getElementById('utm-creative-toggle').checked;
 
   showSection('progress-section');
 
@@ -1372,8 +1377,10 @@ async function startSubmission() {
       const adName = filename.replace(/\.[^.]+$/, '');
       let urlTags = '';
       if (useUrlParams) {
-        const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
-        urlTags = urlParams ? `${creativeParam}&${urlParams}` : creativeParam;
+        const parts = [];
+        if (useCreativeParam) parts.push(`utm_creative=${encodeURIComponent(adName)}`);
+        if (urlParams) parts.push(urlParams);
+        urlTags = parts.join('&');
       }
       return {
         name: adName,
@@ -1388,8 +1395,10 @@ async function startSubmission() {
       const adName = filename.replace(/\.[^.]+$/, '');
       let urlTags = '';
       if (useUrlParams) {
-        const creativeParam = `utm_creative=${encodeURIComponent(adName)}`;
-        urlTags = urlParams ? `${creativeParam}&${urlParams}` : creativeParam;
+        const parts = [];
+        if (useCreativeParam) parts.push(`utm_creative=${encodeURIComponent(adName)}`);
+        if (urlParams) parts.push(urlParams);
+        urlTags = parts.join('&');
       }
       return {
         name: adName, imageFilename: filename,
