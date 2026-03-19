@@ -1298,22 +1298,51 @@ setupDropZone('drop-zone', 'file-input', state.imageFiles, 'image-grid', 'image-
 setupDropZone('drop-zone-feed', 'file-input-feed', state.feedFiles, 'feed-grid', 'feed-count');
 setupDropZone('drop-zone-story', 'file-input-story', state.storyFiles, 'story-grid', 'story-count');
 
+// Strip size/dimension suffixes from filename to get base name for matching
+// e.g. "creative_1080x1080.jpg" → "creative"
+//      "creative×1080x1920.jpg" → "creative"
+//      "creative_9:16.jpg"      → "creative"
+//      "creative_story.jpg"     → "creative"
+//      "creative_縦型.jpg"       → "creative"
+function getBaseName(filename) {
+  const noExt = filename.replace(/\.[^.]+$/, '');
+  return noExt
+    .replace(/[_\-×]\d+[x×]\d+$/i, '')           // _1080x1080, ×1080×1920
+    .replace(/[_\-×]\d+:\d+$/i, '')               // _1:1, _9:16
+    .replace(/[_\-×](square|feed|story|reel|stories|reels|スクエア|縦型|縦|横型|横|フィード|ストーリーズ|リール)$/i, '');
+}
+
+function buildPlacementMaps() {
+  const feedBaseMap = new Map(); // baseName -> filename
+  for (const filename of state.feedFiles.keys()) {
+    feedBaseMap.set(getBaseName(filename), filename);
+  }
+  const storyBaseMap = new Map(); // baseName -> filename
+  for (const filename of state.storyFiles.keys()) {
+    storyBaseMap.set(getBaseName(filename), filename);
+  }
+  return { feedBaseMap, storyBaseMap };
+}
+
 function updatePlacementMatchInfo() {
   const infoEl = document.getElementById('placement-match-info');
   if (!isPlacementMode()) { infoEl.style.display = 'none'; return; }
-  const feedNames = new Set(state.feedFiles.keys());
-  const storyNames = new Set(state.storyFiles.keys());
-  const matched = [...feedNames].filter(n => storyNames.has(n)).length;
-  const feedOnly = state.feedFiles.size - matched;
-  const storyOnly = state.storyFiles.size - matched;
-  const totalAds = matched + feedOnly + storyOnly;
-  if (totalAds === 0) { infoEl.style.display = 'none'; return; }
+  const { feedBaseMap, storyBaseMap } = buildPlacementMaps();
+  const allBaseNames = new Set([...feedBaseMap.keys(), ...storyBaseMap.keys()]);
+  if (allBaseNames.size === 0) { infoEl.style.display = 'none'; return; }
+  let matched = 0, feedOnly = 0, storyOnly = 0;
+  for (const base of allBaseNames) {
+    const hasFeed = feedBaseMap.has(base);
+    const hasStory = storyBaseMap.has(base);
+    if (hasFeed && hasStory) matched++;
+    else if (hasFeed) feedOnly++;
+    else storyOnly++;
+  }
   const parts = [];
   if (matched > 0) parts.push(`フィード＋ストーリーズ: ${matched}件`);
   if (feedOnly > 0) parts.push(`フィードのみ: ${feedOnly}件`);
   if (storyOnly > 0) parts.push(`ストーリーズのみ: ${storyOnly}件`);
-  infoEl.textContent = `広告${totalAds}件を作成予定（${parts.join('、')}）` +
-    (matched > 0 ? '　※同じファイル名のものが配置別にペアリングされます' : '');
+  infoEl.textContent = `広告${allBaseNames.size}件を作成予定（${parts.join('、')}）　※ファイル名のサイズ部分を除いた名前でペアリングされます`;
   infoEl.style.display = 'block';
 }
 
@@ -1324,10 +1353,8 @@ function updateSubmitState() {
 
   if (isPlacementMode()) {
     hasFiles = state.feedFiles.size > 0 || state.storyFiles.size > 0;
-    const feedNames = new Set(state.feedFiles.keys());
-    const storyNames = new Set(state.storyFiles.keys());
-    const allNames = new Set([...feedNames, ...storyNames]);
-    totalAds = allNames.size;
+    const { feedBaseMap, storyBaseMap } = buildPlacementMaps();
+    totalAds = new Set([...feedBaseMap.keys(), ...storyBaseMap.keys()]).size;
     infoText = `配置別 → 広告${totalAds}件を入稿`;
   } else {
     hasFiles = state.imageFiles.size > 0;
@@ -1378,22 +1405,20 @@ async function startSubmission() {
   // Build ads list
   let ads;
   if (placementMode) {
-    const feedNames = new Set(state.feedFiles.keys());
-    const storyNames = new Set(state.storyFiles.keys());
-    const allNames = [...new Set([...feedNames, ...storyNames])];
-    ads = allNames.map(filename => {
-      const adName = filename.replace(/\.[^.]+$/, '');
+    const { feedBaseMap, storyBaseMap } = buildPlacementMaps();
+    const allBaseNames = [...new Set([...feedBaseMap.keys(), ...storyBaseMap.keys()])];
+    ads = allBaseNames.map(baseName => {
       let urlTags = '';
       if (useUrlParams) {
         const parts = [];
-        if (useCreativeParam) parts.push(`utm_creative=${encodeURIComponent(adName)}`);
+        if (useCreativeParam) parts.push(`utm_creative=${encodeURIComponent(baseName)}`);
         if (urlParams) parts.push(urlParams);
         urlTags = parts.join('&');
       }
       return {
-        name: adName,
-        feedFilename: feedNames.has(filename) ? filename : null,
-        storyFilename: storyNames.has(filename) ? filename : null,
+        name: baseName,
+        feedFilename: feedBaseMap.get(baseName) || null,
+        storyFilename: storyBaseMap.get(baseName) || null,
         headline, bodyText, description: '', linkUrl, urlTags,
         ctaType: 'LEARN_MORE', status: 'PAUSED',
       };
