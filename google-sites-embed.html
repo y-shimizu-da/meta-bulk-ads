@@ -1192,7 +1192,15 @@ async function uploadVideoAndWait(file, filename, onStatus) {
     if (typeof onStatus === 'function') onStatus(`動画エンコード待機中... (${(i + 1) * 5}秒)`);
     const statusData = await metaFetch(`${BASE_URL}/${videoId}?fields=status&access_token=${state.accessToken}`);
     const vs = statusData.status?.video_status;
-    if (vs === 'ready') return videoId;
+    if (vs === 'ready') {
+      // Fetch auto-generated thumbnail
+      let thumbnailUrl = null;
+      try {
+        const thumbData = await metaFetch(`${BASE_URL}/${videoId}/thumbnails?fields=uri&access_token=${state.accessToken}`);
+        thumbnailUrl = thumbData.data?.[0]?.uri || null;
+      } catch (e) { /* ignore, thumbnail optional */ }
+      return { videoId, thumbnailUrl };
+    }
     if (vs === 'error') throw new Error('動画のエンコードに失敗しました');
   }
   throw new Error('動画のエンコードがタイムアウトしました（5分超過）');
@@ -1644,8 +1652,8 @@ async function startSubmission() {
     async function uploadFile(file, filename) {
       const isVideo = file.type.startsWith('video/');
       if (isVideo) {
-        const vid = await uploadVideoAndWait(file, filename, (msg) => updateProgress(msg));
-        return { videoId: vid, isVideo: true };
+        const { videoId, thumbnailUrl } = await uploadVideoAndWait(file, filename, (msg) => updateProgress(msg));
+        return { videoId, thumbnailUrl, isVideo: true };
       } else {
         const formData = new FormData();
         formData.append('filename', file, filename);
@@ -1666,6 +1674,7 @@ async function startSubmission() {
           call_to_action: { type: ad.ctaType, value: { link: ad.linkUrl } },
         };
         if (ad.headline) videoData.title = ad.headline;
+        if (uploadResult.thumbnailUrl) videoData.image_url = uploadResult.thumbnailUrl;
         objectStorySpec = { page_id: state.selectedPageId, video_data: videoData };
       } else {
         const linkData = {
