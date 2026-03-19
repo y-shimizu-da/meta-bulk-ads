@@ -925,7 +925,7 @@ document.getElementById('fb-page-manual-id').addEventListener('blur', function()
   if (id) fetchInstagramAccounts(id);
 });
 
-function handleFbSetup() {
+async function handleFbSetup() {
   const adAccountId = document.getElementById('fb-ad-account-select').value;
   // ページはドロップダウンまたは手動入力から取得
   const pageFromSelect = document.getElementById('fb-page-select').value;
@@ -950,6 +950,21 @@ function handleFbSetup() {
   state.selectedAdAccountId = adAccountId;
   state.selectedPageId = pageId;
   state.selectedIgAccountId = igAccountId || '';
+
+  // Auto-detect IG account from FB page if not manually selected
+  if (!state.selectedIgAccountId) {
+    const pageToken = state.pageAccessTokens[pageId];
+    const tokenToUse = pageToken || state.accessToken;
+    try {
+      const pageData = await metaFetch(
+        `${BASE_URL}/${pageId}?fields=instagram_business_account{id}&access_token=${tokenToUse}`
+      );
+      if (pageData.instagram_business_account?.id) {
+        state.selectedIgAccountId = pageData.instagram_business_account.id;
+      }
+    } catch (e) { /* ignore, proceed without IG */ }
+  }
+
   showSection('builder-section');
 }
 
@@ -1799,11 +1814,12 @@ async function startSubmission() {
           if (ad.description) assetFeedSpec.descriptions = [{ text: ad.description }];
 
           // Feed asset
+          const hasIg = !!state.selectedIgAccountId;
           const feedRule = {
             customization_spec: {
-              publisher_platforms: ['facebook', 'instagram'],
+              publisher_platforms: hasIg ? ['facebook', 'instagram'] : ['facebook'],
               facebook_positions: ['feed', 'marketplace', 'video_feeds', 'search', 'right_hand_column'],
-              instagram_positions: ['stream', 'explore', 'profile_feed', 'ig_search'],
+              ...(hasIg && { instagram_positions: ['stream', 'explore', 'profile_feed', 'ig_search'] }),
             },
           };
           if (feedUpload.isVideo) {
@@ -1820,9 +1836,9 @@ async function startSubmission() {
           // Story/Reels asset
           const storyRule = {
             customization_spec: {
-              publisher_platforms: ['facebook', 'instagram'],
+              publisher_platforms: hasIg ? ['facebook', 'instagram'] : ['facebook'],
               facebook_positions: ['story', 'facebook_reels'],
-              instagram_positions: ['story', 'reels'],
+              ...(hasIg && { instagram_positions: ['story', 'reels'] }),
             },
           };
           if (storyUpload.isVideo) {
