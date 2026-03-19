@@ -1787,11 +1787,12 @@ async function startSubmission() {
           if (state.selectedIgAccountId) objectStorySpec.instagram_actor_id = state.selectedIgAccountId;
           params.append('object_story_spec', JSON.stringify(objectStorySpec));
 
+          const bothVideo = feedUpload.isVideo && storyUpload.isVideo;
           const assetFeedSpec = {
-            ad_formats: ['SINGLE_IMAGE'],
+            ad_formats: [bothVideo ? 'SINGLE_VIDEO' : 'SINGLE_IMAGE'],
             bodies: [{ text: ad.bodyText }],
             link_urls: [{ website_url: ad.linkUrl }],
-            call_to_actions: [{ type: ad.ctaType, value: { link: ad.linkUrl } }],
+            call_to_action_types: [ad.ctaType],
             asset_customization_rules: [],
           };
           if (ad.headline) assetFeedSpec.titles = [{ text: ad.headline }];
@@ -1802,7 +1803,7 @@ async function startSubmission() {
             customization_spec: {
               publisher_platforms: ['facebook', 'instagram'],
               facebook_positions: ['feed', 'marketplace', 'video_feeds', 'search', 'right_hand_column'],
-              instagram_positions: ['stream', 'explore', 'explore_home', 'profile_feed', 'ig_search'],
+              instagram_positions: ['stream', 'explore', 'profile_feed', 'ig_search'],
             },
           };
           if (feedUpload.isVideo) {
