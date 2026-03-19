@@ -460,7 +460,7 @@
         <div id="story-count" class="text-sm mt-2" style="font-weight:500;display:none;"></div>
         <div id="story-grid" class="image-grid"></div>
       </div>
-      <p id="placement-match-info" class="hint" style="display:none;"></p>
+      <div id="placement-match-info" style="display:none;margin-top:8px;"></div>
     </div>
 
     <!-- Body Text -->
@@ -1320,11 +1320,14 @@ setupDropZone('drop-zone-story', 'file-input-story', state.storyFiles, 'story-gr
 //      "creative_story.jpg"     → "creative"
 //      "creative_縦型.jpg"       → "creative"
 function getBaseName(filename) {
-  const noExt = filename.replace(/\.[^.]+$/, '');
+  // Normalize: trim whitespace, Unicode NFC, lowercase for matching
+  const normalized = filename.trim().normalize('NFC').toLowerCase();
+  const noExt = normalized.replace(/\.[^.]+$/, '');
   return noExt
-    .replace(/[_\-×]\d+[x×]\d+$/i, '')           // _1080x1080, ×1080×1920
-    .replace(/[_\-×]\d+:\d+$/i, '')               // _1:1, _9:16
-    .replace(/[_\-×](square|feed|story|reel|stories|reels|スクエア|縦型|縦|横型|横|フィード|ストーリーズ|リール)$/i, '');
+    .replace(/[_\-× 　]+\d+[x×]\d+$/i, '')        // _1080x1080, ×1080×1920
+    .replace(/[_\-× 　]+\d+:\d+$/i, '')            // _1:1, _9:16
+    .replace(/[_\-× 　]+(square|feed|story|reel|stories|reels|スクエア|縦型|縦|横型|横|フィード|ストーリーズ|リール)$/i, '')
+    .trim();
 }
 
 function buildPlacementMaps() {
@@ -1343,21 +1346,43 @@ function updatePlacementMatchInfo() {
   const infoEl = document.getElementById('placement-match-info');
   if (!isPlacementMode()) { infoEl.style.display = 'none'; return; }
   const { feedBaseMap, storyBaseMap } = buildPlacementMaps();
-  const allBaseNames = new Set([...feedBaseMap.keys(), ...storyBaseMap.keys()]);
-  if (allBaseNames.size === 0) { infoEl.style.display = 'none'; return; }
+  const allBaseNames = [...new Set([...feedBaseMap.keys(), ...storyBaseMap.keys()])];
+  if (allBaseNames.length === 0) { infoEl.style.display = 'none'; return; }
+
   let matched = 0, feedOnly = 0, storyOnly = 0;
+  let rows = '';
   for (const base of allBaseNames) {
-    const hasFeed = feedBaseMap.has(base);
-    const hasStory = storyBaseMap.has(base);
-    if (hasFeed && hasStory) matched++;
-    else if (hasFeed) feedOnly++;
-    else storyOnly++;
+    const feedFile = feedBaseMap.get(base) || '';
+    const storyFile = storyBaseMap.get(base) || '';
+    const hasFeed = !!feedFile, hasStory = !!storyFile;
+    if (hasFeed && hasStory) { matched++; }
+    else if (hasFeed) { feedOnly++; }
+    else { storyOnly++; }
+    const status = hasFeed && hasStory
+      ? '<span style="color:var(--success);">●</span> ペア'
+      : hasFeed
+        ? '<span style="color:var(--warning);">▲</span> フィードのみ'
+        : '<span style="color:var(--warning);">▲</span> ストーリーズのみ';
+    rows += `<tr>
+      <td style="padding:3px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${feedFile}">${feedFile || '—'}</td>
+      <td style="padding:3px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${storyFile}">${storyFile || '—'}</td>
+      <td style="padding:3px 8px;white-space:nowrap;">${status}</td>
+    </tr>`;
   }
-  const parts = [];
-  if (matched > 0) parts.push(`フィード＋ストーリーズ: ${matched}件`);
-  if (feedOnly > 0) parts.push(`フィードのみ: ${feedOnly}件`);
-  if (storyOnly > 0) parts.push(`ストーリーズのみ: ${storyOnly}件`);
-  infoEl.textContent = `広告${allBaseNames.size}件を作成予定（${parts.join('、')}）　※ファイル名のサイズ部分を除いた名前でペアリングされます`;
+
+  const summary = `広告 ${allBaseNames.length} 件（ペア: ${matched} / フィードのみ: ${feedOnly} / ストーリーズのみ: ${storyOnly}）`;
+  infoEl.innerHTML = `
+    <p style="font-size:0.8rem;color:var(--muted);margin-bottom:4px;">${summary}</p>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:0.78rem;border-collapse:collapse;background:var(--surface);border-radius:6px;overflow:hidden;">
+        <thead><tr style="background:var(--border);">
+          <th style="padding:4px 8px;text-align:left;font-weight:600;">フィード用</th>
+          <th style="padding:4px 8px;text-align:left;font-weight:600;">ストーリーズ用</th>
+          <th style="padding:4px 8px;text-align:left;font-weight:600;">状態</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
   infoEl.style.display = 'block';
 }
 
