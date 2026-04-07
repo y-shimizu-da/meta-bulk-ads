@@ -1327,6 +1327,7 @@ function getBaseName(filename) {
     .replace(/[_\-× 　]+\d+[x×]\d+$/i, '')        // _1080x1080, ×1080×1920
     .replace(/[_\-× 　]+\d+:\d+$/i, '')            // _1:1, _9:16
     .replace(/[_\-× 　]+(square|feed|story|reel|stories|reels|スクエア|縦型|縦|横型|横|フィード|ストーリーズ|リール)$/i, '')
+    .replace(/[_\-]+$/, '')                         // trailing _ or - (e.g. 0403_ → 0403)
     .trim();
 }
 
