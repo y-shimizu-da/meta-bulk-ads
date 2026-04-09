@@ -1913,7 +1913,11 @@ async function startSubmission() {
         params.append('adset_id', adSetId);
         params.append('creative', JSON.stringify({ creative_id: creativeId }));
         params.append('status', 'PAUSED');
-        params.append('creative_degrees_of_freedom_spec', JSON.stringify(creativeDof));
+        // asset_feed_spec使用時はcreative_degrees_of_freedom_specを送らない（競合回避）
+        const usedAssetFeed = placementMode && ad.feedFilename && ad.storyFilename;
+        if (!usedAssetFeed) {
+          params.append('creative_degrees_of_freedom_spec', JSON.stringify(creativeDof));
+        }
         if (ad.urlTags) params.append('url_tags', ad.urlTags);
         params.append('access_token', state.accessToken);
 
