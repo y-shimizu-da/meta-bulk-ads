@@ -1824,8 +1824,8 @@ async function startSubmission() {
 
         if (placementMode && feedUpload && storyUpload) {
           // Both placements: use asset_feed_spec with asset_customization_rules
+          // asset_feed_spec使用時はobject_story_specにpage_idのみ（instagram_actor_idはad set側で制御）
           const objectStorySpec = { page_id: state.selectedPageId };
-          if (state.selectedIgAccountId) objectStorySpec.instagram_actor_id = state.selectedIgAccountId;
           params.append('object_story_spec', JSON.stringify(objectStorySpec));
 
           const bothVideo = feedUpload.isVideo && storyUpload.isVideo;
