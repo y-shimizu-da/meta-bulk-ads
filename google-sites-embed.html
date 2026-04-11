@@ -882,18 +882,20 @@ async function fetchInstagramAccounts(pageId) {
     }
   }
 
-  // 4. Always fetch ad account's connected IG accounts (these are the ones valid for ads)
-  try {
-    const adAccountId = document.getElementById('fb-ad-account-select').value;
-    if (adAccountId) {
-      const igAccounts = await metaFetchAll(
-        `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
-      );
-      igAccounts.forEach(ig => igMap.set(ig.id, ig.username ? `@${ig.username}` : ig.id));
-      debugLog.push(`広告アカウント経由: ${igAccounts.length}件`);
+  // 4. Try connected IG accounts via ad account
+  if (igMap.size === 0) {
+    try {
+      const adAccountId = document.getElementById('fb-ad-account-select').value;
+      if (adAccountId) {
+        const igAccounts = await metaFetchAll(
+          `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
+        );
+        igAccounts.forEach(ig => igMap.set(ig.id, ig.username ? `@${ig.username}` : ig.id));
+        debugLog.push(`広告アカウント経由: ${igAccounts.length}件`);
+      }
+    } catch (e) {
+      debugLog.push(`広告アカウント経由: エラー (${e.message})`);
     }
-  } catch (e) {
-    debugLog.push(`広告アカウント経由: エラー (${e.message})`);
   }
 
   // Populate dropdown
@@ -963,44 +965,7 @@ async function handleFbSetup() {
     } catch (e) { /* ignore */ }
   }
 
-  // Validate IG account against ad account's connected Instagram accounts
-  // The ad API requires the IG account to be connected to the ad account, not just the page
-  let adIgAccounts = [];
-  try {
-    adIgAccounts = await metaFetchAll(
-      `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
-    );
-  } catch (e) {
-    console.warn('Failed to fetch ad account IG accounts:', e.message);
-  }
-
-  if (state.selectedIgAccountId) {
-    const validIds = adIgAccounts.map(ig => ig.id);
-    if (!validIds.includes(state.selectedIgAccountId)) {
-      console.warn(`IG account ${state.selectedIgAccountId} is not connected to ad account. Valid IDs:`, validIds);
-      if (adIgAccounts.length > 0) {
-        state.selectedIgAccountId = adIgAccounts[0].id;
-        console.log(`Replaced with ad account IG: ${adIgAccounts[0].id}`);
-      } else {
-        // No valid IG accounts — fall back to page ID
-        state.selectedIgAccountId = '';
-      }
-    }
-  }
-
-  if (!state.selectedIgAccountId && adIgAccounts.length > 0) {
-    state.selectedIgAccountId = adIgAccounts[0].id;
-    console.log(`Auto-selected IG from ad account: ${adIgAccounts[0].id}`);
-  }
-
-  // Final fallback: use the Facebook Page ID as instagram_actor_id
-  // Meta allows a Facebook Page to act as the Instagram identity for ads
-  if (!state.selectedIgAccountId) {
-    state.selectedIgAccountId = pageId;
-    console.log(`No IG account available, using Facebook Page ID as instagram_actor_id: ${pageId}`);
-  }
-
-  console.log('[handleFbSetup] Final IG account ID:', state.selectedIgAccountId);
+  console.log('[handleFbSetup] Final IG account ID:', state.selectedIgAccountId || '(none)');
 
   showSection('builder-section');
 }
