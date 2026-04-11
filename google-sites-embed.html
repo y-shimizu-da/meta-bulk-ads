@@ -965,44 +965,42 @@ async function handleFbSetup() {
 
   // Validate IG account against ad account's connected Instagram accounts
   // The ad API requires the IG account to be connected to the ad account, not just the page
+  let adIgAccounts = [];
+  try {
+    adIgAccounts = await metaFetchAll(
+      `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
+    );
+  } catch (e) {
+    console.warn('Failed to fetch ad account IG accounts:', e.message);
+  }
+
   if (state.selectedIgAccountId) {
-    try {
-      const adIgAccounts = await metaFetchAll(
-        `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
-      );
-      const validIds = adIgAccounts.map(ig => ig.id);
-      if (!validIds.includes(state.selectedIgAccountId)) {
-        console.warn(`IG account ${state.selectedIgAccountId} is not connected to ad account ${adAccountId}. Valid IDs:`, validIds);
-        if (adIgAccounts.length > 0) {
-          // Use the ad account's first connected IG account instead
-          const replacement = adIgAccounts[0];
-          console.log(`Replacing with ad account's IG: ${replacement.id} (@${replacement.username || '?'})`);
-          state.selectedIgAccountId = replacement.id;
-        } else {
-          // No IG accounts connected to ad account — proceed without IG
-          console.warn('No IG accounts connected to ad account, proceeding without IG');
-          state.selectedIgAccountId = '';
-        }
+    const validIds = adIgAccounts.map(ig => ig.id);
+    if (!validIds.includes(state.selectedIgAccountId)) {
+      console.warn(`IG account ${state.selectedIgAccountId} is not connected to ad account. Valid IDs:`, validIds);
+      if (adIgAccounts.length > 0) {
+        state.selectedIgAccountId = adIgAccounts[0].id;
+        console.log(`Replaced with ad account IG: ${adIgAccounts[0].id}`);
+      } else {
+        // No valid IG accounts — fall back to page ID
+        state.selectedIgAccountId = '';
       }
-    } catch (e) {
-      console.warn('Failed to validate IG account against ad account:', e.message);
     }
   }
 
-  // If still no IG account, try to get one from the ad account directly
-  if (!state.selectedIgAccountId) {
-    try {
-      const adIgAccounts = await metaFetchAll(
-        `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
-      );
-      if (adIgAccounts.length > 0) {
-        state.selectedIgAccountId = adIgAccounts[0].id;
-        console.log(`Auto-selected IG from ad account: ${adIgAccounts[0].id} (@${adIgAccounts[0].username || '?'})`);
-      }
-    } catch (e) { /* ignore */ }
+  if (!state.selectedIgAccountId && adIgAccounts.length > 0) {
+    state.selectedIgAccountId = adIgAccounts[0].id;
+    console.log(`Auto-selected IG from ad account: ${adIgAccounts[0].id}`);
   }
 
-  console.log('[handleFbSetup] Final IG account ID:', state.selectedIgAccountId || '(none)');
+  // Final fallback: use the Facebook Page ID as instagram_actor_id
+  // Meta allows a Facebook Page to act as the Instagram identity for ads
+  if (!state.selectedIgAccountId) {
+    state.selectedIgAccountId = pageId;
+    console.log(`No IG account available, using Facebook Page ID as instagram_actor_id: ${pageId}`);
+  }
+
+  console.log('[handleFbSetup] Final IG account ID:', state.selectedIgAccountId);
 
   showSection('builder-section');
 }
@@ -1863,9 +1861,14 @@ async function startSubmission() {
 
         if (placementMode && feedUpload && storyUpload) {
           // Both placements: use asset_feed_spec with asset_customization_rules
-          // asset_feed_spec使用時はobject_story_specにpage_idのみ（instagram_actor_idはad set側で制御）
           const objectStorySpec = { page_id: state.selectedPageId };
+          if (state.selectedIgAccountId) {
+            objectStorySpec.instagram_actor_id = state.selectedIgAccountId;
+          }
           params.append('object_story_spec', JSON.stringify(objectStorySpec));
+          if (state.selectedIgAccountId) {
+            params.append('instagram_actor_id', state.selectedIgAccountId);
+          }
 
           const bothVideo = feedUpload.isVideo && storyUpload.isVideo;
           const assetFeedSpec = {
