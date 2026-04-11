@@ -882,20 +882,18 @@ async function fetchInstagramAccounts(pageId) {
     }
   }
 
-  // 4. Try connected IG accounts via ad account
-  if (igMap.size === 0) {
-    try {
-      const adAccountId = document.getElementById('fb-ad-account-select').value;
-      if (adAccountId) {
-        const igAccounts = await metaFetchAll(
-          `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
-        );
-        igAccounts.forEach(ig => igMap.set(ig.id, ig.username ? `@${ig.username}` : ig.id));
-        debugLog.push(`広告アカウント経由: ${igAccounts.length}件`);
-      }
-    } catch (e) {
-      debugLog.push(`広告アカウント経由: エラー (${e.message})`);
+  // 4. Always fetch ad account's connected IG accounts (these are the ones valid for ads)
+  try {
+    const adAccountId = document.getElementById('fb-ad-account-select').value;
+    if (adAccountId) {
+      const igAccounts = await metaFetchAll(
+        `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
+      );
+      igAccounts.forEach(ig => igMap.set(ig.id, ig.username ? `@${ig.username}` : ig.id));
+      debugLog.push(`広告アカウント経由: ${igAccounts.length}件`);
     }
+  } catch (e) {
+    debugLog.push(`広告アカウント経由: エラー (${e.message})`);
   }
 
   // Populate dropdown
@@ -962,8 +960,49 @@ async function handleFbSetup() {
       if (pageData.instagram_business_account?.id) {
         state.selectedIgAccountId = pageData.instagram_business_account.id;
       }
-    } catch (e) { /* ignore, proceed without IG */ }
+    } catch (e) { /* ignore */ }
   }
+
+  // Validate IG account against ad account's connected Instagram accounts
+  // The ad API requires the IG account to be connected to the ad account, not just the page
+  if (state.selectedIgAccountId) {
+    try {
+      const adIgAccounts = await metaFetchAll(
+        `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
+      );
+      const validIds = adIgAccounts.map(ig => ig.id);
+      if (!validIds.includes(state.selectedIgAccountId)) {
+        console.warn(`IG account ${state.selectedIgAccountId} is not connected to ad account ${adAccountId}. Valid IDs:`, validIds);
+        if (adIgAccounts.length > 0) {
+          // Use the ad account's first connected IG account instead
+          const replacement = adIgAccounts[0];
+          console.log(`Replacing with ad account's IG: ${replacement.id} (@${replacement.username || '?'})`);
+          state.selectedIgAccountId = replacement.id;
+        } else {
+          // No IG accounts connected to ad account — proceed without IG
+          console.warn('No IG accounts connected to ad account, proceeding without IG');
+          state.selectedIgAccountId = '';
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to validate IG account against ad account:', e.message);
+    }
+  }
+
+  // If still no IG account, try to get one from the ad account directly
+  if (!state.selectedIgAccountId) {
+    try {
+      const adIgAccounts = await metaFetchAll(
+        `${BASE_URL}/${adAccountId}/instagram_accounts?fields=id,username&access_token=${state.accessToken}`
+      );
+      if (adIgAccounts.length > 0) {
+        state.selectedIgAccountId = adIgAccounts[0].id;
+        console.log(`Auto-selected IG from ad account: ${adIgAccounts[0].id} (@${adIgAccounts[0].username || '?'})`);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  console.log('[handleFbSetup] Final IG account ID:', state.selectedIgAccountId || '(none)');
 
   showSection('builder-section');
 }
@@ -1884,12 +1923,19 @@ async function startSubmission() {
           const upload = commonUpload || feedUpload || storyUpload;
           const spec = buildObjectStorySpec(ad, upload);
           params.append('object_story_spec', JSON.stringify(spec));
+          // Also pass instagram_actor_id as top-level param for compatibility
+          if (state.selectedIgAccountId) {
+            params.append('instagram_actor_id', state.selectedIgAccountId);
+          }
           if (!upload.isVideo) {
             params.append('contextual_multi_ads', JSON.stringify({ enroll_status: 'OPT_OUT' }));
           }
         }
         params.append('access_token', state.accessToken);
 
+        // Debug: log creative params
+        console.log('[Creative] instagram_actor_id in state:', state.selectedIgAccountId);
+        console.log('[Creative] params:', Object.fromEntries(params.entries()));
         const crResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adcreatives`, {
           method: 'POST', body: params,
         });
@@ -1921,7 +1967,9 @@ async function startSubmission() {
         if (ad.urlTags) params.append('url_tags', ad.urlTags);
         params.append('access_token', state.accessToken);
 
-        await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/ads`, {
+        // Debug: log ad params
+        console.log('[Ad] params:', Object.fromEntries(params.entries()));
+        const adResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/ads`, {
           method: 'POST', body: params,
         });
         updateItem(adDiv, 'success'); completed++;
