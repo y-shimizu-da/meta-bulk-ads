@@ -868,7 +868,21 @@ async function fetchInstagramAccounts(pageId) {
     }
   }
 
-  // 3. Try via page's instagram_accounts edge
+  // 3. Try page_backed_instagram_accounts (works without IG-to-ad-account connection)
+  if (igMap.size === 0) {
+    const tokenForPage = pageToken || state.accessToken;
+    try {
+      const pbAccounts = await metaFetchAll(
+        `${BASE_URL}/${pageId}/page_backed_instagram_accounts?fields=id&access_token=${tokenForPage}`
+      );
+      pbAccounts.forEach(ig => igMap.set(ig.id, `ページ連携IG (${ig.id})`));
+      debugLog.push(`page_backed: ${pbAccounts.length}件`);
+    } catch (e) {
+      debugLog.push(`page_backed: エラー (${e.message})`);
+    }
+  }
+
+  // 4. Try via page's instagram_accounts edge
   if (igMap.size === 0) {
     const tokenForPage = pageToken || state.accessToken;
     try {
@@ -882,7 +896,7 @@ async function fetchInstagramAccounts(pageId) {
     }
   }
 
-  // 4. Try connected IG accounts via ad account
+  // 5. Try connected IG accounts via ad account
   if (igMap.size === 0) {
     try {
       const adAccountId = document.getElementById('fb-ad-account-select').value;
@@ -951,18 +965,37 @@ async function handleFbSetup() {
   state.selectedPageId = pageId;
   state.selectedIgAccountId = igAccountId || '';
 
-  // Auto-detect IG account from FB page if not manually selected
+  // Resolve a usable Instagram actor ID for ads
+  // Priority: user selection > page_backed IG > page's instagram_business_account
   if (!state.selectedIgAccountId) {
     const pageToken = state.pageAccessTokens[pageId];
     const tokenToUse = pageToken || state.accessToken;
+
+    // 1. Try page_backed_instagram_accounts (works without IG-to-ad-account connection)
     try {
-      const pageData = await metaFetch(
-        `${BASE_URL}/${pageId}?fields=instagram_business_account{id}&access_token=${tokenToUse}`
+      const pbResult = await metaFetchAll(
+        `${BASE_URL}/${pageId}/page_backed_instagram_accounts?fields=id&access_token=${tokenToUse}`
       );
-      if (pageData.instagram_business_account?.id) {
-        state.selectedIgAccountId = pageData.instagram_business_account.id;
+      if (pbResult.length > 0) {
+        state.selectedIgAccountId = pbResult[0].id;
+        console.log(`[IG] Using page-backed IG account: ${pbResult[0].id}`);
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      console.log('[IG] page_backed_instagram_accounts failed:', e.message);
+    }
+
+    // 2. Fallback: page's instagram_business_account
+    if (!state.selectedIgAccountId) {
+      try {
+        const pageData = await metaFetch(
+          `${BASE_URL}/${pageId}?fields=instagram_business_account{id}&access_token=${tokenToUse}`
+        );
+        if (pageData.instagram_business_account?.id) {
+          state.selectedIgAccountId = pageData.instagram_business_account.id;
+          console.log(`[IG] Using page's instagram_business_account: ${pageData.instagram_business_account.id}`);
+        }
+      } catch (e) { /* ignore */ }
+    }
   }
 
   console.log('[handleFbSetup] Final IG account ID:', state.selectedIgAccountId || '(none)');
@@ -1819,23 +1852,19 @@ async function startSubmission() {
       const crDiv = addItem('creative', `${ad.name} クリエイティブ`, 'progress');
       let creativeId = null;
 
-      try {
-        await sleep(RATE_LIMIT_MS);
+      // Build creative params (extracted to allow retry without IG)
+      function buildCreativeParams(igId) {
         const params = new URLSearchParams();
         params.append('name', `${ad.name} - Creative`);
 
         if (placementMode && feedUpload && storyUpload) {
-          // Both placements: use asset_feed_spec with asset_customization_rules
           const objectStorySpec = { page_id: state.selectedPageId };
-          if (state.selectedIgAccountId) {
-            objectStorySpec.instagram_actor_id = state.selectedIgAccountId;
-          }
+          if (igId) objectStorySpec.instagram_actor_id = igId;
           params.append('object_story_spec', JSON.stringify(objectStorySpec));
-          if (state.selectedIgAccountId) {
-            params.append('instagram_actor_id', state.selectedIgAccountId);
-          }
+          if (igId) params.append('instagram_actor_id', igId);
 
           const bothVideo = feedUpload.isVideo && storyUpload.isVideo;
+          const hasIg = !!igId;
           const assetFeedSpec = {
             ad_formats: [bothVideo ? 'SINGLE_VIDEO' : 'SINGLE_IMAGE'],
             bodies: [{ text: ad.bodyText }],
@@ -1847,7 +1876,6 @@ async function startSubmission() {
           if (ad.description) assetFeedSpec.descriptions = [{ text: ad.description }];
 
           // Feed asset
-          const hasIg = !!state.selectedIgAccountId;
           const feedRule = {
             customization_spec: {
               publisher_platforms: hasIg ? ['facebook', 'instagram'] : ['facebook'],
@@ -1887,27 +1915,45 @@ async function startSubmission() {
 
           params.append('asset_feed_spec', JSON.stringify(assetFeedSpec));
         } else {
-          // Single placement or common mode: use object_story_spec
           const upload = commonUpload || feedUpload || storyUpload;
           const spec = buildObjectStorySpec(ad, upload);
+          // Remove instagram_actor_id from spec if no igId
+          if (!igId) delete spec.instagram_actor_id;
           params.append('object_story_spec', JSON.stringify(spec));
-          // Also pass instagram_actor_id as top-level param for compatibility
-          if (state.selectedIgAccountId) {
-            params.append('instagram_actor_id', state.selectedIgAccountId);
-          }
+          if (igId) params.append('instagram_actor_id', igId);
           if (!upload.isVideo) {
             params.append('contextual_multi_ads', JSON.stringify({ enroll_status: 'OPT_OUT' }));
           }
         }
         params.append('access_token', state.accessToken);
+        return params;
+      }
 
-        // Debug: log creative params
-        console.log('[Creative] instagram_actor_id in state:', state.selectedIgAccountId);
-        console.log('[Creative] params:', Object.fromEntries(params.entries()));
-        const crResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adcreatives`, {
-          method: 'POST', body: params,
-        });
-        creativeId = crResult.id;
+      try {
+        await sleep(RATE_LIMIT_MS);
+        let params = buildCreativeParams(state.selectedIgAccountId);
+        console.log('[Creative] instagram_actor_id:', state.selectedIgAccountId || '(none)');
+
+        try {
+          const crResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adcreatives`, {
+            method: 'POST', body: params,
+          });
+          creativeId = crResult.id;
+        } catch (firstErr) {
+          // If IG-related error, retry without IG (Facebook-only placements)
+          if (state.selectedIgAccountId && firstErr.message && firstErr.message.includes('instagram')) {
+            console.warn('[Creative] IG error, retrying without IG:', firstErr.message);
+            updateProgress(`IG無効のためFacebook限定で再試行: ${ad.name}`);
+            await sleep(RATE_LIMIT_MS);
+            params = buildCreativeParams('');
+            const crResult = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adcreatives`, {
+              method: 'POST', body: params,
+            });
+            creativeId = crResult.id;
+          } else {
+            throw firstErr;
+          }
+        }
         updateItem(crDiv, 'success'); completed++;
       } catch (err) {
         updateItem(crDiv, 'error', err.message);
