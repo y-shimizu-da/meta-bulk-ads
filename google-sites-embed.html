@@ -1595,6 +1595,24 @@ async function startSubmission() {
     }
   }
 
+  // Pre-validate IG account by attempting a lightweight API call
+  let igValid = false;
+  if (state.selectedIgAccountId) {
+    try {
+      await metaFetch(
+        `${BASE_URL}/${state.selectedIgAccountId}?fields=id&access_token=${state.accessToken}`
+      );
+      igValid = true;
+      console.log('[IG pre-check] Valid:', state.selectedIgAccountId);
+    } catch (e) {
+      console.warn('[IG pre-check] Invalid, will use Facebook-only:', e.message);
+      state.selectedIgAccountId = '';
+    }
+  }
+  if (!state.selectedIgAccountId) {
+    console.log('[IG pre-check] No IG account, using Facebook-only placements');
+  }
+
   // Check if user selected an existing campaign
   const selectedCampaignId = document.getElementById('campaign-select').value;
 
@@ -1689,12 +1707,22 @@ async function startSubmission() {
         params.append('billing_event', 'IMPRESSIONS');
         params.append('bid_strategy', 'LOWEST_COST_WITHOUT_CAP');
         params.append('start_time', tomorrow.toISOString());
-        params.append('targeting', JSON.stringify({
+        const targeting = {
           geo_locations: { countries: ['JP'] },
           age_min: 18,
           age_max: 65,
-        }));
+        };
+        // Restrict to Facebook-only if no valid IG account
+        if (!state.selectedIgAccountId) {
+          targeting.publisher_platforms = ['facebook'];
+          targeting.facebook_positions = ['feed', 'marketplace', 'video_feeds', 'search', 'story', 'facebook_reels', 'right_hand_column'];
+          console.log('[AdSet] Facebook-only placements (no valid IG)');
+        }
+        params.append('targeting', JSON.stringify(targeting));
         params.append('status', 'PAUSED');
+        if (state.selectedIgAccountId) {
+          params.append('instagram_actor_id', state.selectedIgAccountId);
+        }
         params.append('access_token', state.accessToken);
 
         const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adsets`, {
