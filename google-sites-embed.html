@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v7)</title>
+<title>Meta広告 一括入稿ツール (v8)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -1719,7 +1719,7 @@ async function startSubmission() {
         // Restrict to Facebook-only if no valid IG account
         if (!state.selectedIgAccountId) {
           targeting.publisher_platforms = ['facebook'];
-          targeting.facebook_positions = ['feed', 'marketplace', 'video_feeds', 'search', 'story', 'facebook_reels', 'right_hand_column'];
+          targeting.facebook_positions = ['feed', 'marketplace', 'search', 'story', 'facebook_reels', 'right_hand_column'];
           console.log('[AdSet] Facebook-only placements (no valid IG)');
         }
         params.append('targeting', JSON.stringify(targeting));
@@ -1911,7 +1911,7 @@ async function startSubmission() {
           const feedRule = {
             customization_spec: {
               publisher_platforms: hasIg ? ['facebook', 'instagram'] : ['facebook'],
-              facebook_positions: ['feed', 'marketplace', 'video_feeds', 'search', 'right_hand_column'],
+              facebook_positions: ['feed', 'marketplace', 'search', 'right_hand_column'],
               ...(hasIg && { instagram_positions: ['stream', 'explore', 'profile_feed', 'ig_search'] }),
             },
           };
