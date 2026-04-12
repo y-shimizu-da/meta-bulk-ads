@@ -1595,22 +1595,26 @@ async function startSubmission() {
     }
   }
 
-  // Pre-validate IG account by attempting a lightweight API call
-  let igValid = false;
+  // Pre-validate IG account against the ad account
+  // Check if the IG ID appears in the ad account's authorized IG accounts
   if (state.selectedIgAccountId) {
+    let igUsable = false;
     try {
-      await metaFetch(
-        `${BASE_URL}/${state.selectedIgAccountId}?fields=id&access_token=${state.accessToken}`
+      const adIgAccounts = await metaFetchAll(
+        `${BASE_URL}/${state.selectedAdAccountId}/instagram_accounts?fields=id&access_token=${state.accessToken}`
       );
-      igValid = true;
-      console.log('[IG pre-check] Valid:', state.selectedIgAccountId);
+      igUsable = adIgAccounts.some(ig => ig.id === state.selectedIgAccountId);
+      console.log('[IG pre-check] Ad account IG accounts:', adIgAccounts.map(ig => ig.id), 'Selected:', state.selectedIgAccountId, 'Usable:', igUsable);
     } catch (e) {
-      console.warn('[IG pre-check] Invalid, will use Facebook-only:', e.message);
+      console.warn('[IG pre-check] Failed to fetch ad account IGs:', e.message);
+    }
+    if (!igUsable) {
+      console.warn('[IG pre-check] IG not authorized for this ad account, using Facebook-only');
       state.selectedIgAccountId = '';
     }
   }
   if (!state.selectedIgAccountId) {
-    console.log('[IG pre-check] No IG account, using Facebook-only placements');
+    console.log('[IG pre-check] No usable IG account, using Facebook-only placements');
   }
 
   // Check if user selected an existing campaign
