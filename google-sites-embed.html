@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v8)</title>
+<title>Meta広告 一括入稿ツール (v9)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -380,8 +380,48 @@
     <button class="btn btn-outline btn-sm" onclick="goToLogin()">設定に戻る</button>
   </div>
 
-  <!-- Campaign Selection -->
+  <!-- Input Mode Toggle -->
   <div class="card">
+    <div class="field" style="margin-bottom:0;">
+      <label>入力方式</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+          <input type="radio" name="input-mode" value="form" checked onchange="setInputMode('form')"> フォーム入力（従来）
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;">
+          <input type="radio" name="input-mode" value="csv" onchange="setInputMode('csv')"> CSV / スプレッドシート（一括）
+        </label>
+      </div>
+      <p class="hint">CSV・Googleスプレッドシートで、キャンペーン／広告セット／広告ごとにパラメータを変えて一括入稿できます</p>
+    </div>
+  </div>
+
+  <!-- CSV / Spreadsheet Panel -->
+  <div id="csv-panel" class="card" style="display:none;">
+    <div class="field">
+      <label>① 入稿データ（CSV / スプレッドシート）</label>
+      <p class="hint" style="margin-bottom:6px;">
+        1行 = 1広告。<b>campaign_name</b> / <b>adset_name</b> が同じ行は同一キャンペーン／広告セットにまとめられます。
+        <a href="#" onclick="downloadCsvTemplate();return false;">テンプレートCSVをダウンロード</a>
+        ｜ <a href="https://github.com/y-shimizu-da/meta-bulk-ads/blob/main/README.md" target="_blank" rel="noopener">📖 使い方・列の説明</a>
+      </p>
+      <div class="drop-zone" id="csv-drop-zone" onclick="document.getElementById('csv-file-input').click()" style="padding:20px;">
+        <p>CSVファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+        <p class="sub">UTF-8 のCSV（Excel／スプレッドシートから書き出し）</p>
+      </div>
+      <input type="file" id="csv-file-input" accept=".csv,text/csv" class="hidden">
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+        <input type="text" id="csv-sheet-url" placeholder="Googleスプレッドシートの公開CSV URL を貼り付け" style="flex:1;">
+        <button class="btn btn-outline btn-sm" onclick="loadCsvFromUrl()">読み込み</button>
+      </div>
+      <p class="hint">スプレッドシートは「ファイル → 共有 → ウェブに公開 → 形式: カンマ区切り(.csv)」で発行したURLを使用してください</p>
+      <p id="csv-load-status" class="hint mt-2" style="display:none;"></p>
+    </div>
+    <div id="csv-preview"></div>
+  </div>
+
+  <!-- Campaign Selection -->
+  <div class="card" id="campaign-card">
     <div class="field">
       <label>キャンペーン選択</label>
       <input type="text" id="campaign-filter" placeholder="キャンペーン名で検索..." oninput="filterSelect('campaign-filter','campaign-select')" style="display:none;margin-bottom:4px;">
@@ -415,7 +455,7 @@
 
   <div class="card">
     <!-- Placement Toggle -->
-    <div class="field">
+    <div class="field" id="placement-toggle-field">
       <label style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="placement-toggle" onchange="togglePlacementMode()">
         配置ごとにクリエイティブを分ける
@@ -425,7 +465,8 @@
 
     <!-- Common Upload (default) -->
     <div id="common-upload-area" class="field">
-      <label>画像・動画ファイル（複数可）</label>
+      <label id="upload-label">画像・動画ファイル（複数可）</label>
+      <p class="hint" id="csv-upload-hint" style="display:none;margin-top:0;margin-bottom:6px;">② CSVの <b>image_filename</b> / <b>feed_filename</b> / <b>story_filename</b> 列と一致するファイルをアップロードしてください</p>
       <div class="drop-zone" id="drop-zone"
            onclick="document.getElementById('file-input').click()">
         <p>ここにファイルをドラッグ＆ドロップ、またはクリックして選択</p>
@@ -464,25 +505,25 @@
     </div>
 
     <!-- Body Text -->
-    <div class="field">
+    <div class="field" id="body-text-field">
       <label for="body-text">広告文</label>
       <textarea id="body-text" rows="3" placeholder="広告の本文テキストを入力..."></textarea>
     </div>
 
     <!-- Headline -->
-    <div class="field">
+    <div class="field" id="headline-field">
       <label for="headline">見出し <span style="font-weight:400;color:var(--muted);font-size:0.8rem;">（任意）</span></label>
       <input type="text" id="headline" placeholder="広告の見出しを入力（未入力の場合は見出しなし）">
     </div>
 
     <!-- Link URL -->
-    <div class="field">
+    <div class="field" id="link-url-field">
       <label for="link-url">リンク先URL</label>
       <input type="url" id="link-url" placeholder="https://example.com">
     </div>
 
     <!-- URL Parameters -->
-    <div class="field">
+    <div class="field" id="url-params-field">
       <label style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="url-params-toggle" checked onchange="toggleUrlParams()">
         URLパラメータを設定する
@@ -547,11 +588,13 @@ const state = {
   selectedPageId: '',
   selectedIgAccountId: '',
   pageAccessTokens: {}, // pageId -> page access token
-  imageFiles: new Map(), // filename -> File (common mode)
+  imageFiles: new Map(), // filename -> File (common mode / CSV creative pool)
   feedFiles: new Map(),  // filename -> File (placement mode: feed)
   storyFiles: new Map(), // filename -> File (placement mode: story/reels)
   fbUserName: '',
   pageDebugLog: [],
+  inputMode: 'form',     // 'form' | 'csv'
+  csvRows: [],           // parsed CSV rows (array of {col: value})
 };
 
 const TEST_CAMPAIGN_NAME = 'DA\u2010\u5165\u7a3F\u7528\u30C6\u30B9\u30C8\u30AD\u30E3\u30F3\u30DA\u30FC\u30F3'; // DA‐入稿用テストキャンペーン
@@ -1098,6 +1141,11 @@ function resetToBuilder() {
   document.getElementById('adset-select-area').style.display = 'none';
   document.getElementById('adset-select').innerHTML = '<option value="">新規作成（広告セット_日時）</option>';
   document.getElementById('adset-fetch-status').style.display = 'none';
+  // Reset CSV bulk input
+  state.csvRows = [];
+  document.getElementById('csv-preview').innerHTML = '';
+  document.getElementById('csv-load-status').style.display = 'none';
+  document.getElementById('csv-sheet-url').value = '';
   updateSubmitState();
   showSection('builder-section');
 }
@@ -1290,6 +1338,7 @@ function addFilesToMap(fileList, fileMap, gridId, countId) {
   });
   renderFileGrid(fileMap, gridId, countId);
   updatePlacementMatchInfo();
+  if (state.inputMode === 'csv') renderCsvPreview();
   updateSubmitState();
 }
 
@@ -1297,6 +1346,7 @@ function removeFileFrom(filename, fileMap, gridId, countId) {
   fileMap.delete(filename);
   renderFileGrid(fileMap, gridId, countId);
   updatePlacementMatchInfo();
+  if (state.inputMode === 'csv') renderCsvPreview();
   updateSubmitState();
 }
 
@@ -1423,6 +1473,28 @@ function updatePlacementMatchInfo() {
 }
 
 function updateSubmitState() {
+  // CSV / spreadsheet mode
+  if (state.inputMode === 'csv') {
+    const hasFiles = state.imageFiles.size > 0;
+    let valid = false, infoText;
+    if (!state.csvRows.length) {
+      infoText = 'CSV / スプレッドシートを読み込んでください';
+    } else {
+      const { errors, stats } = buildPlanFromRows(state.csvRows);
+      if (errors.length) {
+        infoText = `エラー ${errors.length}件（プレビューを確認してください）`;
+      } else if (!hasFiles) {
+        infoText = 'クリエイティブファイルをアップロードしてください';
+      } else {
+        valid = true;
+        infoText = `キャンペーン${stats.campaigns} / 広告セット${stats.adsets} / 広告${stats.ads}件を入稿`;
+      }
+    }
+    document.getElementById('submit-btn').disabled = !valid;
+    document.getElementById('submit-info').textContent = infoText;
+    return;
+  }
+
   const body = document.getElementById('body-text').value.trim();
   const link = document.getElementById('link-url').value.trim();
   let hasFiles, totalAds, infoText;
@@ -1453,14 +1525,415 @@ function updateSubmitState() {
   document.getElementById(id).addEventListener('input', updateSubmitState);
 });
 
-// ===== Submission =====
-async function startSubmission() {
+// ===== CSV / Spreadsheet Bulk Input =====
+
+// Column defaults (match the previously hardcoded values for backward compatibility)
+const ADSET_DEFAULTS = {
+  daily_budget: '2000',
+  optimization_goal: 'LINK_CLICKS',
+  billing_event: 'IMPRESSIONS',
+  bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+  countries: 'JP',
+  age_min: '18',
+  age_max: '65',
+  start_time: '',
+};
+const CSV_HEADERS = [
+  'campaign_name', 'objective',
+  'adset_name', 'daily_budget', 'optimization_goal', 'billing_event', 'bid_strategy', 'countries', 'age_min', 'age_max', 'start_time',
+  'ad_name', 'image_filename', 'feed_filename', 'story_filename', 'body_text', 'headline', 'description', 'link_url', 'cta_type', 'url_params',
+];
+
+// Toggle between form input and CSV input modes
+function setInputMode(mode) {
+  state.inputMode = mode;
+  const csv = mode === 'csv';
+  const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? 'block' : 'none'; };
+  show('csv-panel', csv);
+  show('campaign-card', !csv);
+  show('placement-toggle-field', !csv);
+  show('body-text-field', !csv);
+  show('headline-field', !csv);
+  show('link-url-field', !csv);
+  show('url-params-field', !csv);
+  show('csv-upload-hint', csv);
+  if (csv) {
+    // CSV mode uses a single flat file pool (state.imageFiles); force common upload UI
+    document.getElementById('placement-toggle').checked = false;
+    document.getElementById('common-upload-area').style.display = 'block';
+    document.getElementById('placement-area').style.display = 'none';
+    document.getElementById('upload-label').textContent = 'クリエイティブ（画像・動画／複数可）';
+  } else {
+    document.getElementById('upload-label').textContent = '画像・動画ファイル（複数可）';
+    togglePlacementMode();
+  }
+  updateSubmitState();
+}
+
+// Minimal RFC-4180-ish CSV parser (handles quotes, escaped quotes, CRLF, BOM)
+function parseCsv(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = [];
+  let field = '', row = [], inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\r') { /* ignore, handled by \n */ }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else field += c;
+    }
+  }
+  if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
+  const nonEmpty = rows.filter(r => r.some(v => v.trim() !== ''));
+  if (nonEmpty.length === 0) return [];
+  const header = nonEmpty[0].map(h => h.trim());
+  return nonEmpty.slice(1).map(r => {
+    const obj = {};
+    header.forEach((h, idx) => { obj[h] = (r[idx] !== undefined ? r[idx] : '').trim(); });
+    return obj;
+  });
+}
+
+function setCsvStatus(msg, isError) {
+  const el = document.getElementById('csv-load-status');
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--error)' : 'var(--muted)';
+  el.style.display = 'block';
+}
+
+function ingestCsvText(text, sourceLabel) {
+  let rows;
+  try {
+    rows = parseCsv(text);
+  } catch (e) {
+    setCsvStatus('CSVの解析に失敗しました: ' + e.message, true);
+    return;
+  }
+  if (!rows.length) {
+    setCsvStatus('データ行がありません（ヘッダ行のみ、または空のファイルです）', true);
+    state.csvRows = [];
+    renderCsvPreview();
+    updateSubmitState();
+    return;
+  }
+  state.csvRows = rows;
+  setCsvStatus(`${sourceLabel}: ${rows.length} 行を読み込みました`, false);
+  renderCsvPreview();
+  updateSubmitState();
+}
+
+async function loadCsvFromUrl() {
+  const url = document.getElementById('csv-sheet-url').value.trim();
+  if (!url) { setCsvStatus('URLを入力してください', true); return; }
+  setCsvStatus('読み込み中...', false);
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const text = await resp.text();
+    if (/^\s*<(!doctype|html)/i.test(text)) {
+      throw new Error('CSVではなくHTMLが返されました。「ウェブに公開 → CSV」のURLか確認してください');
+    }
+    ingestCsvText(text, 'スプレッドシート');
+  } catch (e) {
+    setCsvStatus('読み込み失敗: ' + e.message + '（公開設定・CORS・URL形式をご確認ください）', true);
+  }
+}
+
+function downloadCsvTemplate() {
+  const sample = [
+    ['CP_サンプルA', 'OUTCOME_TRAFFIC', 'AS_予算3000', '3000', 'LINK_CLICKS', 'IMPRESSIONS', 'LOWEST_COST_WITHOUT_CAP', 'JP', '20', '49', '', '広告1', 'a.jpg', '', '', '訴求文その1', '見出し1', '', 'https://example.com', 'LEARN_MORE', 'utm_source=meta&utm_medium=paid'],
+    ['CP_サンプルA', 'OUTCOME_TRAFFIC', 'AS_予算3000', '3000', 'LINK_CLICKS', 'IMPRESSIONS', 'LOWEST_COST_WITHOUT_CAP', 'JP', '20', '49', '', '広告2', 'b.mp4', '', '', '訴求文その2', '見出し2', '', 'https://example.com', 'LEARN_MORE', 'utm_source=meta&utm_medium=paid'],
+    ['CP_サンプルA', 'OUTCOME_TRAFFIC', 'AS_予算5000', '5000', 'LINK_CLICKS', 'IMPRESSIONS', 'LOWEST_COST_WITHOUT_CAP', 'JP;US', '25', '54', '', '広告3(配置分割)', '', 'c_feed.jpg', 'c_story.jpg', '訴求文その3', '見出し3', '', 'https://example.com/lp', 'SHOP_NOW', 'utm_source=meta&utm_medium=paid'],
+    ['CP_サンプルB', 'OUTCOME_TRAFFIC', 'AS_デフォルト', '', '', '', '', '', '', '', '', '広告4', 'd.png', '', '', '訴求文その4', '', '', 'https://example.com', 'LEARN_MORE', ''],
+  ];
+  const esc = v => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  const lines = [CSV_HEADERS, ...sample].map(r => r.map(esc).join(','));
+  const csv = '﻿' + lines.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'meta_bulk_template.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+// Build a campaign -> ad set -> ad plan from parsed CSV rows.
+// Returns { plan, errors, warnings, stats }.
+function buildPlanFromRows(rows) {
+  const errors = [], warnings = [];
+  const campaignMap = new Map();
+  const order = [];
+
+  rows.forEach((row, idx) => {
+    const rowNum = idx + 2; // +1 for header, +1 for 1-based
+    const campaignName = (row.campaign_name || '').trim();
+    const adsetName = (row.adset_name || '').trim();
+    const linkUrl = (row.link_url || '').trim();
+    const imageFilename = (row.image_filename || '').trim();
+    const feedFilename = (row.feed_filename || '').trim();
+    const storyFilename = (row.story_filename || '').trim();
+
+    if (!campaignName) errors.push(`${rowNum}行目: campaign_name が空です`);
+    if (!adsetName) errors.push(`${rowNum}行目: adset_name が空です`);
+    if (!linkUrl) errors.push(`${rowNum}行目: link_url が空です`);
+
+    const hasCommon = !!imageFilename;
+    const hasPlacement = !!feedFilename || !!storyFilename;
+    if (!hasCommon && !hasPlacement) {
+      errors.push(`${rowNum}行目: image_filename または feed_filename/story_filename のいずれかが必要です`);
+    }
+    [imageFilename, feedFilename, storyFilename].filter(Boolean).forEach(fn => {
+      if (!state.imageFiles.has(fn)) errors.push(`${rowNum}行目: ファイル "${fn}" がアップロードされていません`);
+    });
+    ['daily_budget', 'age_min', 'age_max'].forEach(k => {
+      const v = (row[k] || '').trim();
+      if (v && isNaN(Number(v))) errors.push(`${rowNum}行目: ${k} は数値で指定してください（"${v}"）`);
+    });
+
+    if (!campaignName || !adsetName) return;
+
+    // Campaign group
+    if (!campaignMap.has(campaignName)) {
+      campaignMap.set(campaignName, {
+        name: campaignName,
+        params: { objective: (row.objective || 'OUTCOME_TRAFFIC').trim() || 'OUTCOME_TRAFFIC' },
+        adsetMap: new Map(),
+        adsetOrder: [],
+      });
+      order.push(campaignName);
+    }
+    const cg = campaignMap.get(campaignName);
+    const obj = (row.objective || '').trim();
+    if (obj && obj !== cg.params.objective) {
+      warnings.push(`${rowNum}行目: キャンペーン "${campaignName}" の objective が先頭行(${cg.params.objective})と異なります。先頭行を採用します`);
+    }
+
+    // Ad set group
+    if (!cg.adsetMap.has(adsetName)) {
+      const pick = (k) => { const v = (row[k] || '').trim(); return v || ADSET_DEFAULTS[k]; };
+      cg.adsetMap.set(adsetName, {
+        name: adsetName,
+        params: {
+          daily_budget: pick('daily_budget'),
+          optimization_goal: pick('optimization_goal'),
+          billing_event: pick('billing_event'),
+          bid_strategy: pick('bid_strategy'),
+          countries: pick('countries'),
+          age_min: pick('age_min'),
+          age_max: pick('age_max'),
+          start_time: (row.start_time || '').trim(),
+        },
+        ads: [],
+      });
+      cg.adsetOrder.push(adsetName);
+    }
+    const ag = cg.adsetMap.get(adsetName);
+
+    // Ad
+    const placementMode = !!feedFilename && !!storyFilename;
+    const baseFile = imageFilename || feedFilename || storyFilename;
+    const adName = (row.ad_name || '').trim() || baseFile.replace(/\.[^.]+$/, '');
+    ag.ads.push({
+      name: adName,
+      imageFilename: imageFilename || null,
+      feedFilename: feedFilename || null,
+      storyFilename: storyFilename || null,
+      commonFile: imageFilename ? state.imageFiles.get(imageFilename) : null,
+      feedFile: feedFilename ? state.imageFiles.get(feedFilename) : null,
+      storyFile: storyFilename ? state.imageFiles.get(storyFilename) : null,
+      headline: (row.headline || '').trim(),
+      bodyText: (row.body_text || '').trim(),
+      description: (row.description || '').trim(),
+      linkUrl,
+      urlTags: (row.url_params || '').trim(),
+      ctaType: (row.cta_type || '').trim() || 'LEARN_MORE',
+      status: 'PAUSED',
+      placementMode,
+      rowNum,
+    });
+  });
+
+  const plan = order.map(cn => {
+    const cg = campaignMap.get(cn);
+    return {
+      name: cg.name,
+      params: cg.params,
+      selectedId: null,
+      adsets: cg.adsetOrder.map(an => {
+        const ag = cg.adsetMap.get(an);
+        return { name: ag.name, params: ag.params, selectedId: null, ads: ag.ads };
+      }),
+    };
+  });
+  const stats = {
+    campaigns: plan.length,
+    adsets: plan.reduce((s, c) => s + c.adsets.length, 0),
+    ads: plan.reduce((s, c) => s + c.adsets.reduce((s2, a) => s2 + a.ads.length, 0), 0),
+  };
+  return { plan, errors, warnings, stats };
+}
+
+function renderCsvPreview() {
+  const el = document.getElementById('csv-preview');
+  if (!state.csvRows.length) { el.innerHTML = ''; return; }
+  const { plan, errors, warnings, stats } = buildPlanFromRows(state.csvRows);
+
+  let html = `<p style="font-size:0.85rem;font-weight:600;margin:10px 0 4px;">
+    キャンペーン ${stats.campaigns} / 広告セット ${stats.adsets} / 広告 ${stats.ads} 件</p>`;
+
+  if (errors.length) {
+    html += `<div style="background:rgba(220,38,38,0.08);border-radius:6px;padding:8px;margin-bottom:6px;">
+      <p style="color:var(--error);font-weight:600;font-size:0.8rem;margin-bottom:4px;">エラー ${errors.length}件（要修正）</p>
+      <ul style="margin:0;padding-left:18px;font-size:0.78rem;color:var(--error);">
+        ${errors.slice(0, 30).map(e => `<li>${escapeHtml(e)}</li>`).join('')}
+        ${errors.length > 30 ? `<li>… 他 ${errors.length - 30}件</li>` : ''}
+      </ul></div>`;
+  }
+  if (warnings.length) {
+    html += `<div style="background:rgba(217,119,6,0.08);border-radius:6px;padding:8px;margin-bottom:6px;">
+      <ul style="margin:0;padding-left:18px;font-size:0.78rem;color:var(--warning);">
+        ${warnings.slice(0, 20).map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+      </ul></div>`;
+  }
+
+  let rowsHtml = '';
+  plan.forEach(cg => cg.adsets.forEach(ag => ag.ads.forEach(ad => {
+    const files = [
+      ad.imageFilename,
+      ad.feedFilename ? '[F]' + ad.feedFilename : '',
+      ad.storyFilename ? '[S]' + ad.storyFilename : '',
+    ].filter(Boolean).join(', ');
+    const missing = [ad.imageFilename, ad.feedFilename, ad.storyFilename].filter(Boolean).filter(fn => !state.imageFiles.has(fn));
+    const ok = missing.length === 0;
+    rowsHtml += `<tr>
+      <td style="padding:3px 8px;white-space:nowrap;">${escapeHtml(cg.name)}</td>
+      <td style="padding:3px 8px;white-space:nowrap;">${escapeHtml(ag.name)}</td>
+      <td style="padding:3px 8px;text-align:right;">${escapeHtml(ag.params.daily_budget)}</td>
+      <td style="padding:3px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(ad.name)}">${escapeHtml(ad.name)}</td>
+      <td style="padding:3px 8px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(files)}">${escapeHtml(files)}</td>
+      <td style="padding:3px 8px;white-space:nowrap;">${ok ? '<span style="color:var(--success);">●</span>' : '<span style="color:var(--error);">✕ ファイル不足</span>'}</td>
+    </tr>`;
+  })));
+
+  html += `<div style="overflow-x:auto;">
+    <table style="width:100%;font-size:0.78rem;border-collapse:collapse;background:var(--surface);border-radius:6px;overflow:hidden;">
+      <thead><tr style="background:var(--border);">
+        <th style="padding:4px 8px;text-align:left;font-weight:600;">キャンペーン</th>
+        <th style="padding:4px 8px;text-align:left;font-weight:600;">広告セット</th>
+        <th style="padding:4px 8px;text-align:right;font-weight:600;">日予算</th>
+        <th style="padding:4px 8px;text-align:left;font-weight:600;">広告名</th>
+        <th style="padding:4px 8px;text-align:left;font-weight:600;">ファイル</th>
+        <th style="padding:4px 8px;text-align:left;font-weight:600;">状態</th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table></div>`;
+  el.innerHTML = html;
+}
+
+// Build a single-campaign / single-adset plan from the classic form inputs
+function buildFormPlan(dateStr) {
   const bodyText = document.getElementById('body-text').value.trim();
   const headline = document.getElementById('headline').value.trim();
   const linkUrl = document.getElementById('link-url').value.trim();
   const useUrlParams = document.getElementById('url-params-toggle').checked;
   const urlParams = useUrlParams ? document.getElementById('url-params').value.trim() : '';
   const useCreativeParam = useUrlParams && document.getElementById('utm-creative-toggle').checked;
+  const placementMode = isPlacementMode();
+
+  const campaignSelect = document.getElementById('campaign-select');
+  const selectedCampaignId = campaignSelect.value;
+  const selectedCampaignLabel = selectedCampaignId ? campaignSelect.selectedOptions[0].textContent : '';
+  const adsetSelect = document.getElementById('adset-select');
+  const selectedAdSetId = adsetSelect.value;
+  const selectedAdSetLabel = selectedAdSetId ? adsetSelect.selectedOptions[0].textContent : '';
+
+  function makeUrlTags(name) {
+    if (!useUrlParams) return '';
+    const parts = [];
+    if (useCreativeParam) parts.push(`utm_creative=${encodeURIComponent(name)}`);
+    if (urlParams) parts.push(urlParams);
+    return parts.join('&');
+  }
+
+  let ads;
+  if (placementMode) {
+    const { feedBaseMap, storyBaseMap } = buildPlacementMaps();
+    const allBaseNames = [...new Set([...feedBaseMap.keys(), ...storyBaseMap.keys()])];
+    ads = allBaseNames.map(baseName => {
+      const feedFilename = feedBaseMap.get(baseName) || null;
+      const storyFilename = storyBaseMap.get(baseName) || null;
+      return {
+        name: baseName,
+        imageFilename: null, feedFilename, storyFilename,
+        commonFile: null,
+        feedFile: feedFilename ? state.feedFiles.get(feedFilename) : null,
+        storyFile: storyFilename ? state.storyFiles.get(storyFilename) : null,
+        headline, bodyText, description: '', linkUrl,
+        urlTags: makeUrlTags(baseName), ctaType: 'LEARN_MORE', status: 'PAUSED',
+        placementMode: !!feedFilename && !!storyFilename,
+      };
+    });
+  } else {
+    ads = Array.from(state.imageFiles.keys()).map(filename => {
+      const adName = filename.replace(/\.[^.]+$/, '');
+      return {
+        name: adName, imageFilename: filename, feedFilename: null, storyFilename: null,
+        commonFile: state.imageFiles.get(filename), feedFile: null, storyFile: null,
+        headline, bodyText, description: '', linkUrl,
+        urlTags: makeUrlTags(adName), ctaType: 'LEARN_MORE', status: 'PAUSED',
+        placementMode: false,
+      };
+    });
+  }
+
+  const defaultCampaignName = 'DA‐入稿用キャンペーン';
+  return [{
+    name: selectedCampaignId ? selectedCampaignLabel : defaultCampaignName,
+    params: { objective: 'OUTCOME_TRAFFIC' },
+    selectedId: selectedCampaignId || null,
+    adsets: [{
+      name: selectedAdSetId ? selectedAdSetLabel : `広告セット_${dateStr}`,
+      params: { ...ADSET_DEFAULTS },
+      selectedId: selectedAdSetId || null,
+      ads,
+    }],
+  }];
+}
+
+// Wire up CSV drop zone + file input
+(function setupCsvInput() {
+  const zone = document.getElementById('csv-drop-zone');
+  const input = document.getElementById('csv-file-input');
+  const handleFile = async (file) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      ingestCsvText(text, file.name);
+    } catch (e) {
+      setCsvStatus('ファイルの読み込みに失敗しました: ' + e.message, true);
+    }
+  };
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    handleFile(e.dataTransfer.files[0]);
+  });
+  input.addEventListener('change', (e) => { handleFile(e.target.files[0]); e.target.value = ''; });
+})();
+
+// ===== Submission =====
+async function startSubmission() {
+  const inputMode = state.inputMode;
 
   showSection('progress-section');
 
@@ -1475,57 +1948,33 @@ async function startSubmission() {
   const now = new Date();
   const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
 
-  const placementMode = isPlacementMode();
-  const campaignName = 'DA\u2010\u5165\u7a3F\u7528\u30AD\u30E3\u30F3\u30DA\u30FC\u30F3';
-
-  // Build ads list
-  let ads;
-  if (placementMode) {
-    const { feedBaseMap, storyBaseMap } = buildPlacementMaps();
-    const allBaseNames = [...new Set([...feedBaseMap.keys(), ...storyBaseMap.keys()])];
-    ads = allBaseNames.map(baseName => {
-      let urlTags = '';
-      if (useUrlParams) {
-        const parts = [];
-        if (useCreativeParam) parts.push(`utm_creative=${encodeURIComponent(baseName)}`);
-        if (urlParams) parts.push(urlParams);
-        urlTags = parts.join('&');
-      }
-      return {
-        name: baseName,
-        feedFilename: feedBaseMap.get(baseName) || null,
-        storyFilename: storyBaseMap.get(baseName) || null,
-        headline, bodyText, description: '', linkUrl, urlTags,
-        ctaType: 'LEARN_MORE', status: 'PAUSED',
-      };
-    });
+  // Build the campaign -> ad set -> ad plan (unified for form and CSV modes)
+  let plan;
+  if (inputMode === 'csv') {
+    const built = buildPlanFromRows(state.csvRows);
+    if (built.errors.length) {
+      document.getElementById('progress-done').style.display = 'block';
+      document.getElementById('done-message').textContent = 'CSV\u306B\u30A8\u30E9\u30FC\u304C\u3042\u308A\u307E\u3059\u3002\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u4FEE\u6B63\u3057\u3066\u304B\u3089\u518D\u5EA6\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002';
+      return;
+    }
+    plan = built.plan;
   } else {
-    ads = Array.from(state.imageFiles.keys()).map(filename => {
-      const adName = filename.replace(/\.[^.]+$/, '');
-      let urlTags = '';
-      if (useUrlParams) {
-        const parts = [];
-        if (useCreativeParam) parts.push(`utm_creative=${encodeURIComponent(adName)}`);
-        if (urlParams) parts.push(urlParams);
-        urlTags = parts.join('&');
-      }
-      return {
-        name: adName, imageFilename: filename,
-        headline, bodyText, description: '', linkUrl, urlTags,
-        ctaType: 'LEARN_MORE', status: 'PAUSED',
-      };
-    });
+    plan = buildFormPlan(dateStr);
   }
 
-  // Count total steps: campaign + ad set + per-ad steps
-  // Placement mode: each ad can have 1-2 uploads + 1 creative + 1 ad
-  let perAdSteps;
-  if (placementMode) {
-    perAdSteps = ads.reduce((sum, ad) => sum + (ad.feedFilename ? 1 : 0) + (ad.storyFilename ? 1 : 0) + 2, 0);
-  } else {
-    perAdSteps = ads.length * 3; // upload + creative + ad
+  // Count total steps from the plan
+  function adSteps(ad) {
+    const uploads = ad.placementMode ? ((ad.feedFilename ? 1 : 0) + (ad.storyFilename ? 1 : 0)) : 1;
+    return uploads + 2; // + creative + ad
   }
-  const totalItems = 1 + 1 + perAdSteps;
+  function adsetSteps(ag) {
+    return 1 + ag.ads.reduce((s, ad) => s + adSteps(ad), 0);
+  }
+  let totalItems = 0;
+  for (const cg of plan) {
+    totalItems += 1; // campaign
+    for (const ag of cg.adsets) totalItems += adsetSteps(ag);
+  }
   let completed = 0;
   let failed = 0;
 
@@ -1617,139 +2066,122 @@ async function startSubmission() {
     console.log('[IG pre-check] No usable IG account, using Facebook-only placements');
   }
 
-  // Check if user selected an existing campaign
-  const selectedCampaignId = document.getElementById('campaign-select').value;
+  // Cache of existing campaigns (fetched once, reused across campaign groups for idempotency)
+  let existingCampaignsCache = null;
+  async function getExistingCampaigns() {
+    if (existingCampaignsCache) return existingCampaignsCache;
+    try {
+      existingCampaignsCache = await metaFetchAll(
+        `${BASE_URL}/${state.selectedAdAccountId}/campaigns?fields=id,name&limit=100&access_token=${state.accessToken}`
+      );
+    } catch (e) {
+      existingCampaignsCache = [];
+    }
+    return existingCampaignsCache;
+  }
 
-  try {
-    // Step 1: Campaign
-    let campaignId = null;
-
-    if (selectedCampaignId) {
-      // Use the campaign selected from dropdown
-      const selectedOption = document.getElementById('campaign-select').selectedOptions[0];
-      campaignId = selectedCampaignId;
-      addItem('campaign', `${selectedOption.textContent}（選択済み）`, 'success');
+  // Create or reuse a campaign for a plan group; returns campaign id or null
+  async function ensureCampaign(cg) {
+    if (cg.selectedId) {
+      addItem('campaign', `${cg.name}（選択済み）`, 'success');
       completed++;
       updateProgress('選択したキャンペーンを使用');
-    } else {
-      // Auto: check for existing "DA‐入稿用キャンペーン" or create new
-      updateProgress('既存キャンペーンを検索中...');
-
-      try {
-        const existingCampaigns = await metaFetchAll(
-          `${BASE_URL}/${state.selectedAdAccountId}/campaigns?fields=id,name,objective,status&limit=100&access_token=${state.accessToken}`
-        );
-        const existing = existingCampaigns.find(c => c.name === campaignName);
-        if (existing) {
-          campaignId = existing.id;
-          addItem('campaign', `${campaignName}（既存を使用）`, 'success');
-          completed++;
-          updateProgress('既存キャンペーンを使用');
-        }
-      } catch (e) {
-        // Failed to fetch, will try to create
-      }
+      return cg.selectedId;
     }
-
-    if (!campaignId) {
-      updateProgress(`キャンペーン作成: ${campaignName}`);
-      const campDiv = addItem('campaign', campaignName, 'progress');
-      try {
-        await sleep(RATE_LIMIT_MS);
-        const params = new URLSearchParams();
-        params.append('name', campaignName);
-        params.append('objective', 'OUTCOME_TRAFFIC');
-        params.append('special_ad_categories', '[]');
-        params.append('status', 'PAUSED');
-        params.append('is_adset_budget_sharing_enabled', 'false');
-        params.append('access_token', state.accessToken);
-        const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/campaigns`, {
-          method: 'POST', body: params,
-        });
-        campaignId = result.id;
-        updateItem(campDiv, 'success');
-        completed++;
-      } catch (err) {
-        updateItem(campDiv, 'error', err.message);
-        failed++;
-      }
-      updateProgress('キャンペーン作成完了');
+    // Reuse an existing campaign with the same name if present
+    updateProgress(`キャンペーン準備: ${cg.name}`);
+    const existing = (await getExistingCampaigns()).find(c => c.name === cg.name);
+    if (existing) {
+      addItem('campaign', `${cg.name}（既存を使用）`, 'success');
+      completed++;
+      updateProgress('既存キャンペーンを使用');
+      return existing.id;
     }
-
-    if (!campaignId) {
-      document.getElementById('progress-done').style.display = 'block';
-      document.getElementById('done-message').textContent = 'キャンペーンの作成に失敗しました。アクセストークンと権限を確認してください。';
-      return;
+    updateProgress(`キャンペーン作成: ${cg.name}`);
+    const campDiv = addItem('campaign', cg.name, 'progress');
+    try {
+      await sleep(RATE_LIMIT_MS);
+      const params = new URLSearchParams();
+      params.append('name', cg.name);
+      params.append('objective', cg.params.objective || 'OUTCOME_TRAFFIC');
+      params.append('special_ad_categories', '[]');
+      params.append('status', 'PAUSED');
+      params.append('is_adset_budget_sharing_enabled', 'false');
+      params.append('access_token', state.accessToken);
+      const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/campaigns`, {
+        method: 'POST', body: params,
+      });
+      updateItem(campDiv, 'success');
+      completed++;
+      if (existingCampaignsCache) existingCampaignsCache.push({ id: result.id, name: cg.name });
+      return result.id;
+    } catch (err) {
+      updateItem(campDiv, 'error', err.message);
+      failed++;
+      return null;
     }
+  }
 
-    // Step 2: Ad Set
-    let adSetId = null;
-    const selectedAdSetId = document.getElementById('adset-select').value;
-
-    if (selectedAdSetId) {
-      const selectedAdSetOption = document.getElementById('adset-select').selectedOptions[0];
-      adSetId = selectedAdSetId;
-      addItem('adset', `${selectedAdSetOption.textContent}（選択済み）`, 'success');
+  // Create or reuse an ad set for a plan group; returns ad set id or null
+  async function createAdSet(campaignId, ag) {
+    if (ag.selectedId) {
+      addItem('adset', `${ag.name}（選択済み）`, 'success');
       completed++;
       updateProgress('選択した広告セットを使用');
-    } else {
-      const adSetName = `広告セット_${dateStr}`;
-      updateProgress(`広告セット作成: ${adSetName}`);
-      const adSetDiv = addItem('adset', adSetName, 'progress');
-
-      try {
-        await sleep(RATE_LIMIT_MS);
+      return ag.selectedId;
+    }
+    const adSetName = ag.name;
+    updateProgress(`広告セット作成: ${adSetName}`);
+    const adSetDiv = addItem('adset', adSetName, 'progress');
+    try {
+      await sleep(RATE_LIMIT_MS);
+      let startTime = (ag.params.start_time || '').trim();
+      if (!startTime) {
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
         tomorrow.setHours(0, 0, 0, 0);
-
-        const params = new URLSearchParams();
-        params.append('name', adSetName);
-        params.append('campaign_id', campaignId);
-        params.append('daily_budget', '2000');
-        params.append('optimization_goal', 'LINK_CLICKS');
-        params.append('billing_event', 'IMPRESSIONS');
-        params.append('bid_strategy', 'LOWEST_COST_WITHOUT_CAP');
-        params.append('start_time', tomorrow.toISOString());
-        const targeting = {
-          geo_locations: { countries: ['JP'] },
-          age_min: 18,
-          age_max: 65,
-        };
-        // Restrict to Facebook-only if no valid IG account
-        if (!state.selectedIgAccountId) {
-          targeting.publisher_platforms = ['facebook'];
-          targeting.facebook_positions = ['feed', 'marketplace', 'search', 'story', 'facebook_reels', 'right_hand_column'];
-          console.log('[AdSet] Facebook-only placements (no valid IG)');
-        }
-        params.append('targeting', JSON.stringify(targeting));
-        params.append('status', 'PAUSED');
-        if (state.selectedIgAccountId) {
-          params.append('instagram_actor_id', state.selectedIgAccountId);
-        }
-        params.append('access_token', state.accessToken);
-
-        const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adsets`, {
-          method: 'POST', body: params,
-        });
-        adSetId = result.id;
-        updateItem(adSetDiv, 'success');
-        completed++;
-      } catch (err) {
-        updateItem(adSetDiv, 'error', err.message);
-        failed++;
+        startTime = tomorrow.toISOString();
       }
-      updateProgress('広告セット作成完了');
+      const countries = (ag.params.countries || 'JP').split(/[;,\s]+/).map(s => s.trim()).filter(Boolean);
+      const targeting = {
+        geo_locations: { countries: countries.length ? countries : ['JP'] },
+        age_min: Number(ag.params.age_min) || 18,
+        age_max: Number(ag.params.age_max) || 65,
+      };
+      // Restrict to Facebook-only if no valid IG account
+      if (!state.selectedIgAccountId) {
+        targeting.publisher_platforms = ['facebook'];
+        targeting.facebook_positions = ['feed', 'marketplace', 'search', 'story', 'facebook_reels', 'right_hand_column'];
+        console.log('[AdSet] Facebook-only placements (no valid IG)');
+      }
+      const params = new URLSearchParams();
+      params.append('name', adSetName);
+      params.append('campaign_id', campaignId);
+      params.append('daily_budget', ag.params.daily_budget || '2000');
+      params.append('optimization_goal', ag.params.optimization_goal || 'LINK_CLICKS');
+      params.append('billing_event', ag.params.billing_event || 'IMPRESSIONS');
+      params.append('bid_strategy', ag.params.bid_strategy || 'LOWEST_COST_WITHOUT_CAP');
+      params.append('start_time', startTime);
+      params.append('targeting', JSON.stringify(targeting));
+      params.append('status', 'PAUSED');
+      if (state.selectedIgAccountId) {
+        params.append('instagram_actor_id', state.selectedIgAccountId);
+      }
+      params.append('access_token', state.accessToken);
+      const result = await metaFetch(`${BASE_URL}/${state.selectedAdAccountId}/adsets`, {
+        method: 'POST', body: params,
+      });
+      updateItem(adSetDiv, 'success');
+      completed++;
+      return result.id;
+    } catch (err) {
+      updateItem(adSetDiv, 'error', err.message);
+      failed++;
+      return null;
     }
+  }
 
-    if (!adSetId) {
-      failed += perAdSteps;
-      updateProgress('完了');
-      document.getElementById('progress-done').style.display = 'block';
-      document.getElementById('done-message').textContent = `完了: 成功 ${completed}件 / 失敗 ${failed}件`;
-      return;
-    }
-
+  {
     // Shared Advantage+ OPT_OUT spec
     const creativeDof = {
       creative_features_spec: {
@@ -1822,15 +2254,15 @@ async function startSubmission() {
       return objectStorySpec;
     }
 
-    // Step 3: Ads
-    for (const ad of ads) {
+    // Process a single ad: upload creative(s) -> create creative -> create ad
+    async function processAd(ad, adSetId) {
       // --- Upload files ---
       let feedUpload = null, storyUpload = null, commonUpload = null;
 
-      if (placementMode) {
-        // Placement mode: upload feed and/or story files
-        if (ad.feedFilename) {
-          const file = state.feedFiles.get(ad.feedFilename);
+      if (ad.placementMode) {
+        // Placement mode: feed + story both present
+        {
+          const file = ad.feedFile;
           const label = file.type.startsWith('video/') ? '動画' : '画像';
           updateProgress(`フィード${label}アップロード: ${ad.feedFilename}`);
           const div = addItem('image', `[フィード] ${ad.feedFilename}`, 'progress');
@@ -1840,13 +2272,12 @@ async function startSubmission() {
             updateItem(div, 'success'); completed++;
           } catch (err) {
             updateItem(div, 'error', err.message);
-            const remainSteps = (ad.storyFilename ? 1 : 0) + 2;
-            failed += 1 + remainSteps;
-            continue;
+            failed += 1 + ((ad.storyFilename ? 1 : 0) + 2);
+            return;
           }
         }
-        if (ad.storyFilename) {
-          const file = state.storyFiles.get(ad.storyFilename);
+        {
+          const file = ad.storyFile;
           const label = file.type.startsWith('video/') ? '動画' : '画像';
           updateProgress(`ストーリーズ${label}アップロード: ${ad.storyFilename}`);
           const div = addItem('image', `[ストーリーズ] ${ad.storyFilename}`, 'progress');
@@ -1857,25 +2288,26 @@ async function startSubmission() {
           } catch (err) {
             updateItem(div, 'error', err.message);
             failed += 3; // creative + ad + this
-            continue;
+            return;
           }
         }
       } else {
-        // Common mode: single file upload
-        const file = state.imageFiles.get(ad.imageFilename);
+        // Single file upload (common image, or a single feed/story file)
+        const file = ad.commonFile || ad.feedFile || ad.storyFile;
+        const filename = ad.imageFilename || ad.feedFilename || ad.storyFilename;
         const isVideo = file && file.type.startsWith('video/');
         const label = isVideo ? '動画' : '画像';
-        updateProgress(`${label}アップロード: ${ad.imageFilename}`);
-        const div = addItem('image', ad.imageFilename, 'progress');
+        updateProgress(`${label}アップロード: ${filename}`);
+        const div = addItem('image', filename, 'progress');
         try {
           await sleep(RATE_LIMIT_MS);
           if (!file) throw new Error('ファイルが見つかりません');
-          commonUpload = await uploadFile(file, ad.imageFilename);
+          commonUpload = await uploadFile(file, filename);
           updateItem(div, 'success'); completed++;
         } catch (err) {
           updateItem(div, 'error', err.message);
           failed += 3;
-          continue;
+          return;
         }
       }
 
@@ -1889,7 +2321,7 @@ async function startSubmission() {
         const params = new URLSearchParams();
         params.append('name', `${ad.name} - Creative`);
 
-        if (placementMode && feedUpload && storyUpload) {
+        if (ad.placementMode && feedUpload && storyUpload) {
           const objectStorySpec = { page_id: state.selectedPageId };
           if (igId) objectStorySpec.instagram_actor_id = igId;
           params.append('object_story_spec', JSON.stringify(objectStorySpec));
@@ -1991,7 +2423,7 @@ async function startSubmission() {
         updateItem(crDiv, 'error', err.message);
         failed += 2;
         updateProgress(`クリエイティブ作成失敗: ${ad.name}`);
-        continue;
+        return;
       }
 
       // --- Create Ad ---
@@ -2006,7 +2438,7 @@ async function startSubmission() {
         params.append('creative', JSON.stringify({ creative_id: creativeId }));
         params.append('status', 'PAUSED');
         // asset_feed_spec使用時はcreative_degrees_of_freedom_specを送らない（競合回避）
-        const usedAssetFeed = placementMode && ad.feedFilename && ad.storyFilename;
+        const usedAssetFeed = ad.placementMode && ad.feedFilename && ad.storyFilename;
         if (!usedAssetFeed) {
           params.append('creative_degrees_of_freedom_spec', JSON.stringify(creativeDof));
         }
@@ -2026,8 +2458,29 @@ async function startSubmission() {
       updateProgress(`広告作成完了: ${ad.name}`);
     }
 
-  } catch (err) {
-    updateProgress(`エラー: ${err.message}`);
+    // Main loop: campaign -> ad set -> ad
+    try {
+      for (const cg of plan) {
+        const campaignId = await ensureCampaign(cg);
+        if (!campaignId) {
+          for (const ag of cg.adsets) failed += adsetSteps(ag);
+          updateProgress(`キャンペーン失敗のためスキップ: ${cg.name}`);
+          continue;
+        }
+        for (const ag of cg.adsets) {
+          const adSetId = await createAdSet(campaignId, ag);
+          if (!adSetId) {
+            for (const ad of ag.ads) failed += adSteps(ad);
+            continue;
+          }
+          for (const ad of ag.ads) {
+            await processAd(ad, adSetId);
+          }
+        }
+      }
+    } catch (err) {
+      updateProgress(`エラー: ${err.message}`);
+    }
   }
 
   onRetryStatus = null;

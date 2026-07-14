@@ -1,0 +1,5 @@
+﻿campaign_name,objective,adset_name,daily_budget,optimization_goal,billing_event,bid_strategy,countries,age_min,age_max,start_time,ad_name,image_filename,feed_filename,story_filename,body_text,headline,description,link_url,cta_type,url_params
+CP_サンプルA,OUTCOME_TRAFFIC,AS_予算3000,3000,LINK_CLICKS,IMPRESSIONS,LOWEST_COST_WITHOUT_CAP,JP,20,49,,広告1,a.jpg,,,訴求文その1,見出し1,,https://example.com,LEARN_MORE,utm_source=meta&utm_medium=paid
+CP_サンプルA,OUTCOME_TRAFFIC,AS_予算3000,3000,LINK_CLICKS,IMPRESSIONS,LOWEST_COST_WITHOUT_CAP,JP,20,49,,広告2,b.mp4,,,訴求文その2,見出し2,,https://example.com,LEARN_MORE,utm_source=meta&utm_medium=paid
+CP_サンプルA,OUTCOME_TRAFFIC,AS_予算5000,5000,LINK_CLICKS,IMPRESSIONS,LOWEST_COST_WITHOUT_CAP,JP;US,25,54,,広告3(配置分割),,c_feed.jpg,c_story.jpg,訴求文その3,見出し3,,https://example.com/lp,SHOP_NOW,utm_source=meta&utm_medium=paid
+CP_サンプルB,OUTCOME_TRAFFIC,AS_デフォルト,,,,,,,,,広告4,d.png,,,訴求文その4,,,https://example.com,LEARN_MORE,
