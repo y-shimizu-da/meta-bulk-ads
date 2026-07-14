@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v9)</title>
+<title>Meta広告 一括入稿ツール (v10)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -734,75 +734,65 @@ async function handleFbLoginSuccess(authResponse) {
 
   // Fetch ad accounts and pages
   try {
-    statusEl.textContent = '広告アカウントを取得中...';
-    const adAccounts = await metaFetchAll(
-      `${BASE_URL}/me/adaccounts?fields=id,name,account_status,currency&limit=100&access_token=${state.accessToken}`
-    );
+    statusEl.textContent = '広告アカウント・ページを取得中...';
 
-    statusEl.textContent = 'Facebookページを取得中...';
-
-    // Try multiple endpoints to get Facebook Pages
-    let pages = [];
+    // All of these endpoints are independent, so fetch them concurrently
+    // (agency accounts link many pages; running these sequentially with paced
+    //  pagination was the cause of the slow login).
     const pageMap = new Map(); // id -> name, for dedup
     const pageDebugLog = [];
+    const PAGE_CAP = 500;      // safety cap per business edge (some agencies link thousands)
+    let adAccounts = [];
 
-    // 1. Personal pages (me/accounts) - also get access_token for IG lookup
-    try {
-      const personalPages = await metaFetchAll(
-        `${BASE_URL}/me/accounts?fields=id,name,access_token&limit=100&access_token=${state.accessToken}`
-      );
-      personalPages.forEach(p => {
-        pageMap.set(p.id, p.name || p.id);
-        if (p.access_token) state.pageAccessTokens[p.id] = p.access_token;
-      });
-      pageDebugLog.push(`me/accounts: ${personalPages.length}件取得`);
-    } catch (e) {
-      pageDebugLog.push(`me/accounts: エラー (${e.message})`);
-    }
+    const addPages = (list) => list.forEach(p => {
+      pageMap.set(p.id, p.name || p.id);
+      if (p.access_token) state.pageAccessTokens[p.id] = p.access_token;
+    });
 
-    // 2. Business Manager assigned pages (me/assigned_pages)
-    try {
-      const assignedPages = await metaFetchAll(
-        `${BASE_URL}/me/assigned_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
-      );
-      assignedPages.forEach(p => pageMap.set(p.id, p.name || p.id));
-      pageDebugLog.push(`me/assigned_pages: ${assignedPages.length}件取得`);
-    } catch (e) {
-      pageDebugLog.push(`me/assigned_pages: エラー (${e.message})`);
-    }
+    // Ad accounts
+    const adAccountsTask = metaFetchAll(
+      `${BASE_URL}/me/adaccounts?fields=id,name,account_status,currency&limit=100&access_token=${state.accessToken}`
+    ).then(list => { adAccounts = list; })
+     .catch(e => pageDebugLog.push(`me/adaccounts: エラー (${e.message})`));
 
-    // 3. Business Manager owned/client pages (via /me/businesses)
-    try {
-      const bizRes = await metaFetch(
-        `${BASE_URL}/me/businesses?fields=id,name&limit=50&access_token=${state.accessToken}`
-      );
-      const businesses = bizRes.data || [];
-      pageDebugLog.push(`me/businesses: ${businesses.length}件 (${businesses.map(b => b.name).join(', ')})`);
-      for (const biz of businesses) {
-        try {
-          const bizPages = await metaFetchAll(
-            `${BASE_URL}/${biz.id}/owned_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
-          );
-          bizPages.forEach(p => pageMap.set(p.id, p.name || p.id));
-          pageDebugLog.push(`  ${biz.name}/owned_pages: ${bizPages.length}件`);
-        } catch (e) {
-          pageDebugLog.push(`  ${biz.name}/owned_pages: エラー (${e.message})`);
-        }
-        try {
-          const clientPages = await metaFetchAll(
-            `${BASE_URL}/${biz.id}/client_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
-          );
-          clientPages.forEach(p => pageMap.set(p.id, p.name || p.id));
-          pageDebugLog.push(`  ${biz.name}/client_pages: ${clientPages.length}件`);
-        } catch (e) {
-          pageDebugLog.push(`  ${biz.name}/client_pages: エラー (${e.message})`);
-        }
+    // 1. Personal pages (me/accounts) - also captures page access tokens for IG lookup
+    const personalTask = metaFetchAll(
+      `${BASE_URL}/me/accounts?fields=id,name,access_token&limit=100&access_token=${state.accessToken}`
+    ).then(list => { addPages(list); pageDebugLog.push(`me/accounts: ${list.length}件取得`); })
+     .catch(e => pageDebugLog.push(`me/accounts: エラー (${e.message})`));
+
+    // 2. Business Manager assigned pages
+    const assignedTask = metaFetchAll(
+      `${BASE_URL}/me/assigned_pages?fields=id,name&limit=100&access_token=${state.accessToken}`
+    ).then(list => { list.forEach(p => pageMap.set(p.id, p.name || p.id)); pageDebugLog.push(`me/assigned_pages: ${list.length}件取得`); })
+     .catch(e => pageDebugLog.push(`me/assigned_pages: エラー (${e.message})`));
+
+    // 3. Business Manager owned/client pages (each business fetched in parallel, bounded concurrency)
+    const businessTask = (async () => {
+      try {
+        const bizRes = await metaFetch(
+          `${BASE_URL}/me/businesses?fields=id,name&limit=50&access_token=${state.accessToken}`
+        );
+        const businesses = bizRes.data || [];
+        pageDebugLog.push(`me/businesses: ${businesses.length}件 (${businesses.map(b => b.name).join(', ')})`);
+        await mapLimit(businesses, 4, async (biz) => {
+          const collect = (edge) => metaFetchAll(
+            `${BASE_URL}/${biz.id}/${edge}?fields=id,name&limit=100&access_token=${state.accessToken}`,
+            { maxItems: PAGE_CAP }
+          ).then(list => {
+            list.forEach(p => pageMap.set(p.id, p.name || p.id));
+            pageDebugLog.push(`  ${biz.name}/${edge}: ${list.length}件${list.length >= PAGE_CAP ? '（上限で打切り。見つからないページはIDを直接入力）' : ''}`);
+          }).catch(e => pageDebugLog.push(`  ${biz.name}/${edge}: エラー (${e.message})`));
+          await Promise.all([collect('owned_pages'), collect('client_pages')]);
+        });
+      } catch (e) {
+        pageDebugLog.push(`me/businesses: エラー (${e.message})`);
       }
-    } catch (e) {
-      pageDebugLog.push(`me/businesses: エラー (${e.message})`);
-    }
+    })();
 
-    pages = Array.from(pageMap.entries()).map(([id, name]) => ({ id, name }));
+    await Promise.all([adAccountsTask, personalTask, assignedTask, businessTask]);
+
+    const pages = Array.from(pageMap.entries()).map(([id, name]) => ({ id, name }));
     state.pageDebugLog = pageDebugLog;
 
     // Populate ad account dropdown
@@ -1088,16 +1078,31 @@ async function metaFetch(url, options = {}) {
 // Global callback for retry status display
 let onRetryStatus = null;
 
-async function metaFetchAll(url) {
+async function metaFetchAll(url, { maxItems = Infinity, pace = 400 } = {}) {
   const all = [];
   let nextUrl = url;
   while (nextUrl) {
     const data = await metaFetch(nextUrl);
     if (data.data) all.push(...data.data);
+    if (all.length >= maxItems) break; // safety cap (e.g. agency accounts with thousands of pages)
     nextUrl = data.paging?.next || null;
-    if (nextUrl) await sleep(1000); // pace pagination
+    if (nextUrl) await sleep(pace); // pace pagination to avoid rate limits
   }
   return all;
+}
+
+// Run async tasks with bounded concurrency (avoids hammering the API while still parallel)
+async function mapLimit(items, limit, fn) {
+  const results = [];
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function sleep(ms) {
