@@ -48,9 +48,17 @@ PowerShell で実行。まず `-DryRun` で対象を確認してから本実行�
 Facebookログイン → アカウント選択 → CSV/スプレッドシート読込までを確認してください。
 （FBログインが「無効なドメイン」等で失敗する場合は、上記のMetaアプリのドメイン追加が未反映です）
 
-## GitHub Pages 版との関係
+## GitHub Pages 版について（無効化済み）
 
-- 開発・確認用の常設URL: https://y-shimizu-da.github.io/meta-bulk-ads/google-sites-embed.html （main へ push すると自動反映）
-- 本番配布用: 上記 XServer の digitalathlete.jp
+- **GitHub Pages は無効化しました**（2026-07-15）。`https://y-shimizu-da.github.io/meta-bulk-ads/...` は 404 になります。
+- 公開・配布は **XServer の https://www.digitalathlete.jp/lp/meta-bulk-ads/ のみ**です。
+- GitHubリポジトリ（`github.com/y-shimizu-da/meta-bulk-ads`）は**ソース管理用として継続**します。
+  main へ push しても Pages は再公開されません（=誤って公開URLが復活しない）。
+- アプリ内の「使い方・列の説明」リンクは `github.com/.../blob/main/README.md`（リポジトリ＝Pagesではない）を指すため、Pages無効化後も表示できます。
 
-ソースは同じ `google-sites-embed.html`。GitHub 側を更新（push）→ その後この XServer デプロイを実行、の順で両方を最新に保てます。
+### 更新フロー
+1. `google-sites-embed.html` を編集
+2. `git push`（ソース管理。Pagesは公開されない）
+3. `deploy/deploy-meta-bulk-ads.ps1` を実行して XServer に反映
+
+> 再びGitHub Pagesを使いたくなった場合は、GitHubのリポジトリ Settings → Pages で Source を `main` に設定すれば復活できます。
