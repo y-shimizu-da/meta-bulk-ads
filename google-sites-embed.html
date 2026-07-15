@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v13)</title>
+<title>Meta広告 一括入稿ツール (v14)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -416,7 +416,8 @@
         <button class="btn btn-outline btn-sm" onclick="loadCsvFromUrl()">読み込み</button>
       </div>
       <p class="hint">スプレッドシートを「リンクを知っている全員（閲覧者）」に共有し、通常のURLを貼り付けてください。読めない場合は「ファイル→共有→ウェブに公開→CSV」のURLをご利用ください。<br>
-      <b>objective / optimization_goal / billing_event / bid_strategy は空欄でOK</b>（空欄なら推奨デフォルトが入ります。値を入れる場合は「使い方・列の説明」参照）</p>
+      <b>objective / optimization_goal / billing_event / bid_strategy は空欄でOK</b>（空欄なら推奨デフォルトが入ります。値を入れる場合は「使い方・列の説明」参照）<br>
+      既存のキャンペーン／広告セットに広告だけ追加したい場合は、その名称を <b>campaign_name / adset_name</b> に正確に入力（同名は再利用され、設定列は空欄でOK）</p>
       <p id="csv-load-status" class="hint mt-2" style="display:none;"></p>
     </div>
     <div id="csv-preview"></div>
@@ -2131,6 +2132,20 @@ async function startSubmission() {
     return existingCampaignsCache;
   }
 
+  // Cache of existing ad sets per campaign (for reuse-by-name / idempotency)
+  const existingAdSetsCache = {}; // campaignId -> [{id, name}]
+  async function getExistingAdSets(campaignId) {
+    if (existingAdSetsCache[campaignId]) return existingAdSetsCache[campaignId];
+    try {
+      existingAdSetsCache[campaignId] = await metaFetchAll(
+        `${BASE_URL}/${campaignId}/adsets?fields=id,name&limit=100&access_token=${state.accessToken}`
+      );
+    } catch (e) {
+      existingAdSetsCache[campaignId] = [];
+    }
+    return existingAdSetsCache[campaignId];
+  }
+
   // Create or reuse a campaign for a plan group; returns campaign id or null
   async function ensureCampaign(cg) {
     if (cg.selectedId) {
@@ -2182,6 +2197,16 @@ async function startSubmission() {
       return ag.selectedId;
     }
     const adSetName = ag.name;
+    // Reuse an existing ad set with the same name in this campaign.
+    // (Idempotent. When reusing, the ad-set setting columns are ignored — ads are just added.)
+    updateProgress(`広告セット準備: ${adSetName}`);
+    const existingAdSet = (await getExistingAdSets(campaignId)).find(a => a.name === adSetName);
+    if (existingAdSet) {
+      addItem('adset', `${adSetName}（既存を使用）`, 'success');
+      completed++;
+      updateProgress('既存広告セットを使用');
+      return existingAdSet.id;
+    }
     updateProgress(`広告セット作成: ${adSetName}`);
     const adSetDiv = addItem('adset', adSetName, 'progress');
     try {
@@ -2224,6 +2249,7 @@ async function startSubmission() {
       });
       updateItem(adSetDiv, 'success');
       completed++;
+      if (existingAdSetsCache[campaignId]) existingAdSetsCache[campaignId].push({ id: result.id, name: adSetName });
       return result.id;
     } catch (err) {
       updateItem(adSetDiv, 'error', err.message);
