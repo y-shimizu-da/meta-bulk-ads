@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v12)</title>
+<title>Meta広告 一括入稿ツール (v13)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -402,7 +402,8 @@
       <label>① 入稿データ（CSV / スプレッドシート）</label>
       <p class="hint" style="margin-bottom:6px;">
         1行 = 1広告。<b>campaign_name</b> / <b>adset_name</b> が同じ行は同一キャンペーン／広告セットにまとめられます。
-        <a href="#" onclick="downloadCsvTemplate();return false;">テンプレートCSVをダウンロード</a>
+        <a href="#" onclick="downloadCsvTemplate();return false;">CSVテンプレをダウンロード</a>
+        ｜ <a href="https://docs.google.com/spreadsheets/d/1TkIutlbNczuvXWSNtNH0OcyM8PWmdaQVhWPEnTZuklA/copy" target="_blank" rel="noopener">📄 スプレッドシート版テンプレ（コピーを作成）</a>
         ｜ <a href="https://github.com/y-shimizu-da/meta-bulk-ads/blob/main/README.md" target="_blank" rel="noopener">📖 使い方・列の説明</a>
       </p>
       <div class="drop-zone" id="csv-drop-zone" onclick="document.getElementById('csv-file-input').click()" style="padding:20px;">

@@ -145,7 +145,7 @@ CSVの `image_filename` / `feed_filename` / `story_filename` 列と**同じフ�
 
 ## テンプレート
 
-- アプリ内の「テンプレートCSVをダウンロード」ボタン、または
-- リポジトリ同梱の [`meta_bulk_template.csv`](meta_bulk_template.csv)
+- **CSV版**: アプリ内の「CSVテンプレをダウンロード」ボタン、またはリポジトリ同梱の [`meta_bulk_template.csv`](meta_bulk_template.csv)
+- **スプレッドシート版**: [コピーを作成](https://docs.google.com/spreadsheets/d/1TkIutlbNczuvXWSNtNH0OcyM8PWmdaQVhWPEnTZuklA/copy)（自分のドライブにコピーして編集 → 共有URLをツールに貼り付け）
 
-いずれも同じ内容です。
+> ℹ️ スプレッドシート版テンプレは、閲覧・コピーできるよう共有設定（「リンクを知っている全員: 閲覧者」）が必要です。社内限定にしている場合は、対象メンバーがGoogleにログインしている必要があります。
