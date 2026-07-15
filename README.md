@@ -93,6 +93,20 @@ CSVの `image_filename` / `feed_filename` / `story_filename` 列と**同じフ�
 
 ※ `image_filename`、または `feed_filename` / `story_filename` のいずれかが必須です。
 
+### `objective` / `optimization_goal` / `billing_event` / `bid_strategy` に入れる値
+
+**迷ったら空欄にしてください。** 空欄なら下記の推奨デフォルトが自動で入ります（従来ツールと同じ設定）。値を入れる場合は、大文字・小文字どちらでもOK（自動で大文字に変換されます）。誤った値はプレビューでエラー表示され、入稿前に気づけます。
+
+| 列 | 空欄時のデフォルト | 指定できる値（代表） |
+|---|---|---|
+| `objective`（キャンペーンの目的） | `OUTCOME_TRAFFIC` | `OUTCOME_TRAFFIC`（トラフィック） / `OUTCOME_ENGAGEMENT`（エンゲージメント） / `OUTCOME_LEADS`（リード） / `OUTCOME_SALES`（売上） / `OUTCOME_AWARENESS`（認知度） / `OUTCOME_APP_PROMOTION`（アプリ） |
+| `optimization_goal`（最適化の対象） | `LINK_CLICKS` | `LINK_CLICKS`（リンククリック） / `LANDING_PAGE_VIEWS`（LP閲覧） / `IMPRESSIONS`（インプレッション） / `REACH`（リーチ） / `OFFSITE_CONVERSIONS`（コンバージョン） / `LEAD_GENERATION`（リード獲得） / `THRUPLAY`（動画視聴） ほか |
+| `billing_event`（課金基準） | `IMPRESSIONS` | `IMPRESSIONS`（表示ごと） / `LINK_CLICKS`（クリックごと） / `POST_ENGAGEMENT` / `THRUPLAY` |
+| `bid_strategy`（入札戦略） | `LOWEST_COST_WITHOUT_CAP` | `LOWEST_COST_WITHOUT_CAP`（最小単価・上限なし） / `LOWEST_COST_WITH_BID_CAP`（入札上限あり） / `COST_CAP`（費用上限） / `LOWEST_COST_WITH_MIN_ROAS`（最小ROAS） |
+| `cta_type`（ボタン文言） | `LEARN_MORE` | `LEARN_MORE`（詳しくはこちら） / `SHOP_NOW`（購入する） / `SIGN_UP`（登録する） / `SUBSCRIBE` / `DOWNLOAD` / `CONTACT_US` / `APPLY_NOW` / `GET_QUOTE` / `BOOK_TRAVEL` ほか |
+
+> ⚠️ `objective` と `optimization_goal` / `billing_event` には**組み合わせの制約**があります（例: 目的が `OUTCOME_TRAFFIC` なら `LINK_CLICKS` や `LANDING_PAGE_VIEWS`）。整合しない組み合わせはMeta側でエラーになります。**基本は全部空欄（デフォルト）のままで問題ありません。**
+
 ### クリエイティブの対応付けと配置分割
 - 通常は `image_filename` に画像/動画ファイル名を指定します（画像・動画どちらも可）。
 - **配置分割**したい場合は、同じ行に `feed_filename`（フィード用 1:1 推奨）と `story_filename`（ストーリーズ/リール用 9:16 推奨）の両方を指定します。1つの広告内で配置ごとにクリエイティブを出し分けます。
@@ -100,15 +114,22 @@ CSVの `image_filename` / `feed_filename` / `story_filename` 列と**同じフ�
 
 ---
 
-## Google スプレッドシートを「公開CSV URL」にする手順
+## Google スプレッドシートで入稿する手順
 
-1. スプレッドシートを開く
-2. メニュー **ファイル → 共有 → ウェブに公開**
-3. 「リンク」タブで、公開範囲を該当シートにし、形式を **カンマ区切り（.csv）** に設定
-4. **公開** をクリックし、表示されたURLをコピー
-5. ツールのURL欄に貼り付けて「読み込み」
+### 方法A（かんたん・推奨）: 通常の共有URLを貼るだけ
+1. スプレッドシートの列を [テンプレート](meta_bulk_template.csv) に合わせて作成・編集
+2. 右上 **共有** → 「リンクを知っている全員」を **閲覧者** に設定
+3. そのシートのURL（`.../edit#gid=...` の通常URLでOK）をコピー
+4. ツールのURL欄に貼り付けて「読み込み」
 
-> ⚠️ 通常の共有リンク（`.../edit#gid=...`）や `export?format=csv` 形式はCORS等で読み込めない場合があります。必ず「ウェブに公開 → CSV」で発行したURLを使ってください。
+ツール側でCSV取得用URLに自動変換して読み込みます。入稿したいシートのタブを開いた状態のURL（`#gid=...` 付き）だと、そのタブが読み込まれます。
+
+### 方法B（方法Aで読めない場合）: ウェブに公開
+1. メニュー **ファイル → 共有 → ウェブに公開**
+2. 公開範囲を該当シートにし、形式を **カンマ区切り（.csv）** に設定
+3. **公開** をクリックし、表示されたURLをコピーしてURL欄に貼り付け
+
+> 💡 いずれの方法も、シートが第三者から閲覧可能な状態である必要があります（社外秘データは扱わないでください）。CSVファイルをダウンロードして直接アップロードする方法なら、共有設定は不要です。
 
 ---
 

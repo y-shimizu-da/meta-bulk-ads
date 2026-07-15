@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v11)</title>
+<title>Meta広告 一括入稿ツール (v12)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -411,10 +411,11 @@
       </div>
       <input type="file" id="csv-file-input" accept=".csv,text/csv" class="hidden">
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
-        <input type="text" id="csv-sheet-url" placeholder="Googleスプレッドシートの公開CSV URL を貼り付け" style="flex:1;">
+        <input type="text" id="csv-sheet-url" placeholder="GoogleスプレッドシートのURLを貼り付け（通常の共有URLでOK）" style="flex:1;">
         <button class="btn btn-outline btn-sm" onclick="loadCsvFromUrl()">読み込み</button>
       </div>
-      <p class="hint">スプレッドシートは「ファイル → 共有 → ウェブに公開 → 形式: カンマ区切り(.csv)」で発行したURLを使用してください</p>
+      <p class="hint">スプレッドシートを「リンクを知っている全員（閲覧者）」に共有し、通常のURLを貼り付けてください。読めない場合は「ファイル→共有→ウェブに公開→CSV」のURLをご利用ください。<br>
+      <b>objective / optimization_goal / billing_event / bid_strategy は空欄でOK</b>（空欄なら推奨デフォルトが入ります。値を入れる場合は「使い方・列の説明」参照）</p>
       <p id="csv-load-status" class="hint mt-2" style="display:none;"></p>
     </div>
     <div id="csv-preview"></div>
@@ -1549,6 +1550,17 @@ const CSV_HEADERS = [
   'ad_name', 'image_filename', 'feed_filename', 'story_filename', 'body_text', 'headline', 'description', 'link_url', 'cta_type', 'url_params',
 ];
 
+// Allowed values for the enum columns (blank = use ADSET_DEFAULTS). Used for
+// validation + auto-uppercasing so typos are caught before hitting the Meta API.
+const ENUM_VALUES = {
+  objective: ['OUTCOME_TRAFFIC', 'OUTCOME_ENGAGEMENT', 'OUTCOME_LEADS', 'OUTCOME_SALES', 'OUTCOME_AWARENESS', 'OUTCOME_APP_PROMOTION'],
+  billing_event: ['IMPRESSIONS', 'LINK_CLICKS', 'POST_ENGAGEMENT', 'THRUPLAY', 'PAGE_LIKES'],
+  bid_strategy: ['LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP', 'LOWEST_COST_WITH_MIN_ROAS'],
+};
+// optimization_goal has a large, objective-dependent set → validated as a warning only
+const OPT_GOAL_COMMON = ['LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'IMPRESSIONS', 'REACH', 'POST_ENGAGEMENT', 'PAGE_LIKES', 'OFFSITE_CONVERSIONS', 'LEAD_GENERATION', 'QUALITY_LEAD', 'THRUPLAY', 'VALUE', 'APP_INSTALLS', 'CONVERSATIONS'];
+const CTA_COMMON = ['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP', 'SUBSCRIBE', 'BOOK_TRAVEL', 'DOWNLOAD', 'GET_OFFER', 'CONTACT_US', 'APPLY_NOW', 'GET_QUOTE', 'SEE_MORE', 'ORDER_NOW', 'WATCH_MORE', 'NO_BUTTON'];
+
 // Toggle between form input and CSV input modes
 function setInputMode(mode) {
   state.inputMode = mode;
@@ -1634,20 +1646,36 @@ function ingestCsvText(text, sourceLabel) {
   updateSubmitState();
 }
 
+// Convert a normal Google Sheets URL into a CSV-export endpoint.
+// Accepts: /edit#gid=, /view?gid=, already-CSV (pub/export/gviz) URLs.
+function toCsvUrl(url) {
+  if (/output=csv|format=csv|tqx=out:csv/i.test(url)) return url; // already a CSV endpoint
+  const m = url.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9\-_]+)/);
+  if (m) {
+    const id = m[1];
+    const gidM = url.match(/[#&?]gid=(\d+)/);
+    const gid = gidM ? gidM[1] : '0';
+    // gviz CSV endpoint works cross-origin for link-viewable sheets
+    return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`;
+  }
+  return url;
+}
+
 async function loadCsvFromUrl() {
   const url = document.getElementById('csv-sheet-url').value.trim();
   if (!url) { setCsvStatus('URLを入力してください', true); return; }
+  const fetchUrl = toCsvUrl(url);
   setCsvStatus('読み込み中...', false);
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(fetchUrl);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const text = await resp.text();
     if (/^\s*<(!doctype|html)/i.test(text)) {
-      throw new Error('CSVではなくHTMLが返されました。「ウェブに公開 → CSV」のURLか確認してください');
+      throw new Error('CSVではなくHTMLが返されました。スプレッドシートを「リンクを知っている全員（閲覧者）」に共有しているか確認してください');
     }
     ingestCsvText(text, 'スプレッドシート');
   } catch (e) {
-    setCsvStatus('読み込み失敗: ' + e.message + '（公開設定・CORS・URL形式をご確認ください）', true);
+    setCsvStatus('読み込み失敗: ' + e.message + '。通常の共有URLで読めない場合は「ファイル→共有→ウェブに公開→CSV」で発行したURLをお試しください', true);
   }
 }
 
@@ -1703,6 +1731,22 @@ function buildPlanFromRows(rows) {
       const v = (row[k] || '').trim();
       if (v && isNaN(Number(v))) errors.push(`${rowNum}行目: ${k} は数値で指定してください（"${v}"）`);
     });
+    // Enum columns: hard error for the short/stable sets (typos caught early)
+    Object.keys(ENUM_VALUES).forEach(k => {
+      const v = (row[k] || '').trim().toUpperCase();
+      if (v && !ENUM_VALUES[k].includes(v)) {
+        errors.push(`${rowNum}行目: ${k} は次のいずれか、または空欄（既定=${ADSET_DEFAULTS[k] || 'OUTCOME_TRAFFIC'}）: ${ENUM_VALUES[k].join(' / ')}`);
+      }
+    });
+    // optimization_goal / cta_type: warning only (large, objective-dependent sets)
+    const og = (row.optimization_goal || '').trim().toUpperCase();
+    if (og && !OPT_GOAL_COMMON.includes(og)) {
+      warnings.push(`${rowNum}行目: optimization_goal "${row.optimization_goal}" は代表的な値ではありません。目的(objective)と整合しないとMeta側でエラーになる場合があります（代表例: ${OPT_GOAL_COMMON.slice(0, 6).join(' / ')} …）`);
+    }
+    const cta = (row.cta_type || '').trim().toUpperCase();
+    if (cta && !CTA_COMMON.includes(cta)) {
+      warnings.push(`${rowNum}行目: cta_type "${row.cta_type}" は代表的な値ではありません（代表例: ${CTA_COMMON.slice(0, 6).join(' / ')} …）`);
+    }
 
     if (!campaignName || !adsetName) return;
 
@@ -1710,14 +1754,14 @@ function buildPlanFromRows(rows) {
     if (!campaignMap.has(campaignName)) {
       campaignMap.set(campaignName, {
         name: campaignName,
-        params: { objective: (row.objective || 'OUTCOME_TRAFFIC').trim() || 'OUTCOME_TRAFFIC' },
+        params: { objective: (row.objective || 'OUTCOME_TRAFFIC').trim().toUpperCase() || 'OUTCOME_TRAFFIC' },
         adsetMap: new Map(),
         adsetOrder: [],
       });
       order.push(campaignName);
     }
     const cg = campaignMap.get(campaignName);
-    const obj = (row.objective || '').trim();
+    const obj = (row.objective || '').trim().toUpperCase();
     if (obj && obj !== cg.params.objective) {
       warnings.push(`${rowNum}行目: キャンペーン "${campaignName}" の objective が先頭行(${cg.params.objective})と異なります。先頭行を採用します`);
     }
@@ -1725,14 +1769,15 @@ function buildPlanFromRows(rows) {
     // Ad set group
     if (!cg.adsetMap.has(adsetName)) {
       const pick = (k) => { const v = (row[k] || '').trim(); return v || ADSET_DEFAULTS[k]; };
+      const pickU = (k) => { const v = (row[k] || '').trim().toUpperCase(); return v || ADSET_DEFAULTS[k]; };
       cg.adsetMap.set(adsetName, {
         name: adsetName,
         params: {
           daily_budget: pick('daily_budget'),
-          optimization_goal: pick('optimization_goal'),
-          billing_event: pick('billing_event'),
-          bid_strategy: pick('bid_strategy'),
-          countries: pick('countries'),
+          optimization_goal: pickU('optimization_goal'),
+          billing_event: pickU('billing_event'),
+          bid_strategy: pickU('bid_strategy'),
+          countries: pickU('countries'),
           age_min: pick('age_min'),
           age_max: pick('age_max'),
           start_time: (row.start_time || '').trim(),
@@ -1760,7 +1805,7 @@ function buildPlanFromRows(rows) {
       description: (row.description || '').trim(),
       linkUrl,
       urlTags: (row.url_params || '').trim(),
-      ctaType: (row.cta_type || '').trim() || 'LEARN_MORE',
+      ctaType: (row.cta_type || '').trim().toUpperCase() || 'LEARN_MORE',
       status: 'PAUSED',
       placementMode,
       rowNum,
