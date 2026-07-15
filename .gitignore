@@ -24,6 +24,9 @@
 desktop.ini
 Thumbs.db
 
+# deploy: generated upload staging (index.html は google-sites-embed.html のコピー)
+/deploy/upload/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
