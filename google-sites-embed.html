@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v14)</title>
+<title>Meta広告 一括入稿ツール (v15)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -417,7 +417,8 @@
       </div>
       <p class="hint">スプレッドシートを「リンクを知っている全員（閲覧者）」に共有し、通常のURLを貼り付けてください。読めない場合は「ファイル→共有→ウェブに公開→CSV」のURLをご利用ください。<br>
       <b>objective / optimization_goal / billing_event / bid_strategy は空欄でOK</b>（空欄なら推奨デフォルトが入ります。値を入れる場合は「使い方・列の説明」参照）<br>
-      既存のキャンペーン／広告セットに広告だけ追加したい場合は、その名称を <b>campaign_name / adset_name</b> に正確に入力（同名は再利用され、設定列は空欄でOK）</p>
+      既存のキャンペーン／広告セットに広告だけ追加したい場合は、その名称を <b>campaign_name / adset_name</b> に正確に入力（同名は再利用され、設定列は空欄でOK）<br>
+      <b>ASC（Advantage+）等</b>は <b>adset_name を空欄</b>にすると、そのキャンペーンの既存広告セットに自動追加します（キャンペーンは事前作成が必要）</p>
       <p id="csv-load-status" class="hint mt-2" style="display:none;"></p>
     </div>
     <div id="csv-preview"></div>
@@ -1718,7 +1719,7 @@ function buildPlanFromRows(rows) {
     const storyFilename = (row.story_filename || '').trim();
 
     if (!campaignName) errors.push(`${rowNum}行目: campaign_name が空です`);
-    if (!adsetName) errors.push(`${rowNum}行目: adset_name が空です`);
+    // adset_name は任意。空欄なら既存キャンペーンの広告セットに自動追加（ASC等）。
     if (!linkUrl) errors.push(`${rowNum}行目: link_url が空です`);
 
     const hasCommon = !!imageFilename;
@@ -1750,7 +1751,7 @@ function buildPlanFromRows(rows) {
       warnings.push(`${rowNum}行目: cta_type "${row.cta_type}" は代表的な値ではありません（代表例: ${CTA_COMMON.slice(0, 6).join(' / ')} …）`);
     }
 
-    if (!campaignName || !adsetName) return;
+    if (!campaignName) return;
 
     // Campaign group
     if (!campaignMap.has(campaignName)) {
@@ -1774,6 +1775,7 @@ function buildPlanFromRows(rows) {
       const pickU = (k) => { const v = (row[k] || '').trim().toUpperCase(); return v || ADSET_DEFAULTS[k]; };
       cg.adsetMap.set(adsetName, {
         name: adsetName,
+        auto: adsetName === '', // blank adset_name -> attach to the existing campaign's ad set
         params: {
           daily_budget: pick('daily_budget'),
           optimization_goal: pickU('optimization_goal'),
@@ -1822,10 +1824,13 @@ function buildPlanFromRows(rows) {
       selectedId: null,
       adsets: cg.adsetOrder.map(an => {
         const ag = cg.adsetMap.get(an);
-        return { name: ag.name, params: ag.params, selectedId: null, ads: ag.ads };
+        return { name: ag.name, auto: ag.auto, params: ag.params, selectedId: null, ads: ag.ads };
       }),
     };
   });
+  if (plan.some(cg => cg.adsets.some(a => a.auto))) {
+    warnings.push('adset_name が空の行は、既存キャンペーンの広告セットに自動追加されます（対象キャンペーンは事前作成が必要。広告セットが1つのASC等が対象。複数ある場合は adset_name で指定してください）');
+  }
   const stats = {
     campaigns: plan.length,
     adsets: plan.reduce((s, c) => s + c.adsets.length, 0),
@@ -1868,8 +1873,8 @@ function renderCsvPreview() {
     const ok = missing.length === 0;
     rowsHtml += `<tr>
       <td style="padding:3px 8px;white-space:nowrap;">${escapeHtml(cg.name)}</td>
-      <td style="padding:3px 8px;white-space:nowrap;">${escapeHtml(ag.name)}</td>
-      <td style="padding:3px 8px;text-align:right;">${escapeHtml(ag.params.daily_budget)}</td>
+      <td style="padding:3px 8px;white-space:nowrap;">${ag.auto ? '<span style="color:var(--muted);">（既存に自動追加）</span>' : escapeHtml(ag.name)}</td>
+      <td style="padding:3px 8px;text-align:right;">${ag.auto ? '—' : escapeHtml(ag.params.daily_budget)}</td>
       <td style="padding:3px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(ad.name)}">${escapeHtml(ad.name)}</td>
       <td style="padding:3px 8px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(files)}">${escapeHtml(files)}</td>
       <td style="padding:3px 8px;white-space:nowrap;">${ok ? '<span style="color:var(--success);">●</span>' : '<span style="color:var(--error);">✕ ファイル不足</span>'}</td>
@@ -2196,6 +2201,24 @@ async function startSubmission() {
       updateProgress('選択した広告セットを使用');
       return ag.selectedId;
     }
+    // Auto mode (blank adset_name): attach ads to the campaign's existing ad set (e.g. ASC).
+    if (ag.auto) {
+      updateProgress('広告セットを自動判定中...');
+      const sets = await getExistingAdSets(campaignId);
+      if (sets.length === 1) {
+        addItem('adset', `${sets[0].name}（既存を自動使用）`, 'success');
+        completed++;
+        updateProgress('既存広告セットに追加');
+        return sets[0].id;
+      }
+      const msg = sets.length === 0
+        ? '広告セットが見つかりません。adset_name 空欄は既存キャンペーンの広告セットが必要です（ASC等は事前に作成してください）'
+        : `このキャンペーンには広告セットが ${sets.length} 件あります。adset_name で対象を指定してください`;
+      addItem('adset', '（自動判定）', 'error', msg);
+      failed++;
+      return null;
+    }
+
     const adSetName = ag.name;
     // Reuse an existing ad set with the same name in this campaign.
     // (Idempotent. When reusing, the ad-set setting columns are ignored — ads are just added.)
