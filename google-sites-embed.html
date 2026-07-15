@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v15)</title>
+<title>Meta広告 一括入稿ツール (v16)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -700,18 +700,49 @@ function loginWithFacebook() {
     btn.disabled = false;
     btn.textContent = 'Facebookでログイン';
 
-    if (response.authResponse) {
+    if (response && response.authResponse) {
       handleFbLoginSuccess(response.authResponse);
-    } else {
-      statusEl.style.display = 'none';
-      errEl.textContent = 'ログインがキャンセルされました。';
-      errEl.style.display = 'block';
+      return;
     }
+    // Login did not complete — surface the real reason (was previously always "キャンセル")
+    statusEl.style.display = 'none';
+    let msg;
+    if (response && response.status === 'not_authorized') {
+      msg = 'ログインは進みましたが、必要な権限が許可されませんでした。次をご確認ください: '
+        + '①権限（ads_management 等）を「許可」して再試行 '
+        + '②このアプリの「役割/テスター」招待を相手が【承認済み】か（招待送付だけでは権限は付きません） '
+        + '③対象の広告アカウントへのアクセス権があるか。';
+    } else {
+      // status 'unknown' / no response: popup closed, cookies/tracking protection, ad blocker, firewall
+      msg = 'ログインが完了しませんでした。ブラウザ側でブロックされている可能性が高いです。対処: '
+        + '①ポップアップを許可 '
+        + '②サードパーティCookie/トラッキング防止をこのサイトで許可（Safari/Firefox/Chrome） '
+        + '③広告ブロッカーやFacebook Container等の拡張機能を一時無効化 '
+        + '④拡張機能なしの別ブラウザ（Chrome等）で再試行。'
+        + 'それでも不可なら、下の「手動でトークンを入力」をご利用ください。';
+    }
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
   }, {
     scope: 'ads_management,pages_show_list,pages_read_engagement,business_management',
     auth_type: 'rerequest',
+    return_scopes: true,
   });
 }
+
+// Detect if the Facebook SDK was blocked (ad blocker / tracking protection / corporate firewall).
+// If connect.facebook.net never loaded, FB stays undefined and login can never work.
+setTimeout(function () {
+  if (typeof FB === 'undefined') {
+    const errEl = document.getElementById('fb-login-error');
+    if (errEl) {
+      errEl.textContent = 'Facebookの読み込みがブロックされている可能性があります'
+        + '（広告ブロッカー／トラッキング防止／社内ネットワーク制限など）。'
+        + '拡張機能の一時無効化・別ブラウザをお試しいただくか、下の「手動でトークンを入力」をご利用ください。';
+      errEl.style.display = 'block';
+    }
+  }
+}, 6000);
 
 async function handleFbLoginSuccess(authResponse) {
   const statusEl = document.getElementById('fb-login-status');
@@ -722,6 +753,13 @@ async function handleFbLoginSuccess(authResponse) {
   statusEl.textContent = 'トークンを取得しました。アカウント情報を読み込み中...';
 
   state.accessToken = authResponse.accessToken;
+
+  // Warn if the critical ads permission was not granted (grantedScopes present when return_scopes:true)
+  if (authResponse.grantedScopes && authResponse.grantedScopes.split(',').indexOf('ads_management') === -1) {
+    errEl.textContent = '注意: ads_management 権限が許可されていないため、広告の入稿ができない可能性があります。'
+      + '一度ログアウトし、ログイン時に権限をすべて「許可」して再度お試しください。';
+    errEl.style.display = 'block';
+  }
 
   // Show logged-in state
   document.getElementById('fb-login-area').style.display = 'none';
