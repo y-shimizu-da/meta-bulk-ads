@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v16)</title>
+<title>Meta広告 一括入稿ツール (v17)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -275,6 +275,16 @@
     </div>
     <p id="fb-login-error" class="hint mt-2" style="color:var(--error);display:none;"></p>
     <p id="fb-login-status" class="hint mt-2" style="display:none;"></p>
+    <details class="hint mt-2" style="font-size:0.8rem;">
+      <summary style="cursor:pointer;color:var(--muted);">ログインできない場合（「機能をご利用いただけません」と出る等）</summary>
+      <div style="margin-top:6px;line-height:1.7;">
+        Facebookで「<b>機能をご利用いただけません／このアプリの詳細について追加アップデート中</b>」と表示される場合、
+        これはブラウザではなく<b>アプリの権限設定</b>による制限です。管理者・開発者・<b>承認済みテスター</b>以外はログインできません。<br>
+        ・<b>すぐ使う</b>: 下の「手動でトークンを入力」をご利用ください（Facebookログイン不要）。<br>
+        ・<b>その人にログインさせたい</b>: アプリの「役割／テスター」に追加し、本人が招待を<b>承認</b>する必要があります。<br>
+        ・<b>誰でも使えるように</b>: App Review で「高度なアクセス（Advanced Access）」を取得（審査が必要）。
+      </div>
+    </details>
   </div>
 
   <!-- Account Selection (shown after FB login) -->
