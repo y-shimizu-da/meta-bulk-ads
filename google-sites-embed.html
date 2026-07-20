@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meta広告 一括入稿ツール (v18)</title>
+<title>Meta広告 一括入稿ツール (v19)</title>
 <!-- Facebook SDK -->
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js"></script>
 <style>
@@ -489,6 +489,15 @@
       <input type="file" id="file-input" accept="image/*,video/*" multiple class="hidden">
       <div id="image-count" class="text-sm mt-2" style="font-weight:500;display:none;"></div>
       <div id="image-grid" class="image-grid"></div>
+      <!-- Copy uploaded filenames for pasting into the spreadsheet -->
+      <div id="filename-copy-area" style="display:none;margin-top:8px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="copyFileNames()">ファイル名をコピー（スプレッドシート貼り付け用）</button>
+          <span id="filename-copy-status" style="font-size:0.8rem;color:var(--success);display:none;">コピーしました</span>
+        </div>
+        <p class="hint" style="margin-top:4px;">改行区切り・拡張子込みで出力します。スプレッドシートの <b>image_filename</b> / <b>feed_filename</b> / <b>story_filename</b> 列に縦方向でそのまま貼り付けられます。</p>
+        <textarea id="filename-list" readonly rows="4" style="width:100%;box-sizing:border-box;font-size:0.8rem;white-space:pre;overflow:auto;"></textarea>
+      </div>
     </div>
 
     <!-- Placement-Specific Upload -->
@@ -1203,6 +1212,7 @@ function resetToBuilder() {
   document.getElementById('csv-preview').innerHTML = '';
   document.getElementById('csv-load-status').style.display = 'none';
   document.getElementById('csv-sheet-url').value = '';
+  updateFilenameList();
   updateSubmitState();
   showSection('builder-section');
 }
@@ -1395,6 +1405,7 @@ function addFilesToMap(fileList, fileMap, gridId, countId) {
   });
   renderFileGrid(fileMap, gridId, countId);
   updatePlacementMatchInfo();
+  updateFilenameList();
   if (state.inputMode === 'csv') renderCsvPreview();
   updateSubmitState();
 }
@@ -1403,8 +1414,45 @@ function removeFileFrom(filename, fileMap, gridId, countId) {
   fileMap.delete(filename);
   renderFileGrid(fileMap, gridId, countId);
   updatePlacementMatchInfo();
+  updateFilenameList();
   if (state.inputMode === 'csv') renderCsvPreview();
   updateSubmitState();
+}
+
+// Gather all uploaded filenames (across common/feed/story pools), de-duplicated
+function collectAllFilenames() {
+  const names = new Set();
+  state.imageFiles.forEach((_, n) => names.add(n));
+  state.feedFiles.forEach((_, n) => names.add(n));
+  state.storyFiles.forEach((_, n) => names.add(n));
+  return Array.from(names);
+}
+
+// Update the copy-area textarea with newline-separated filenames (exact, with extension)
+function updateFilenameList() {
+  const area = document.getElementById('filename-copy-area');
+  const ta = document.getElementById('filename-list');
+  if (!area || !ta) return;
+  const names = collectAllFilenames();
+  if (names.length === 0) { area.style.display = 'none'; ta.value = ''; return; }
+  ta.value = names.join('\n');
+  area.style.display = 'block';
+}
+
+// Copy the filename list to the clipboard (newline-separated → pastes down a sheet column)
+function copyFileNames() {
+  const ta = document.getElementById('filename-list');
+  if (!ta || !ta.value) return;
+  const done = () => {
+    const s = document.getElementById('filename-copy-status');
+    if (s) { s.style.display = 'inline'; setTimeout(() => { s.style.display = 'none'; }, 2000); }
+  };
+  const fallback = () => { ta.focus(); ta.select(); try { document.execCommand('copy'); } catch (e) {} done(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(done).catch(fallback);
+  } else {
+    fallback();
+  }
 }
 
 function renderFileGrid(fileMap, gridId, countId) {
